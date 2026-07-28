@@ -11,6 +11,16 @@ const { enviarIngressoEmail } = require('../services/emailService');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://linkah.eu';
 
 // ======================================================
+// PAÍSES SUPORTADOS PARA CRIAÇÃO DE CONTA STRIPE CONNECT
+// ======================================================
+// Ajuste esta lista conforme os países que a Linkah deseja
+// habilitar para recebimento via Stripe Connect Express.
+const PAISES_SUPORTADOS = [
+  'BR', 'PT', 'US', 'ES', 'FR', 'GB', 'DE', 'IT',
+  'AR', 'MX', 'CA', 'NL', 'IE', 'CH', 'AT', 'BE'
+];
+
+// ======================================================
 // FUNÇÕES AUXILIARES
 // ======================================================
 
@@ -83,6 +93,16 @@ function parseQuantidades(rawQuantidades) {
   }
 
   return resultado;
+}
+
+function normalizeCountryCode(pais) {
+  if (!pais || typeof pais !== 'string') return null;
+
+  const codigo = pais.trim().toUpperCase();
+
+  if (!/^[A-Z]{2}$/.test(codigo)) return null;
+
+  return codigo;
 }
 
 // ======================================================
@@ -335,12 +355,12 @@ exports.criarSessaoCheckout = async (req, res) => {
 };
 
 // ======================================================
-// 2. VINCULAR CONTA DO PRODUTOR
+// 2. VINCULAR CONTA DO PRODUTOR (COM VALIDAÇÃO DE PAÍS)
 // ======================================================
 
 exports.vincularContaStripe = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, pais } = req.body;
 
     if (!email) {
       return res.status(400).json({ error: 'E-mail não informado.' });
@@ -359,10 +379,27 @@ exports.vincularContaStripe = async (req, res) => {
     const registro = produtorResult.rows[0] || usuarioResult.rows[0];
     let stripeAccountId = registro?.stripe_account_id || null;
 
+    // Só valida e exige o país quando ainda não existe uma conta vinculada.
+    // Se a conta já existe, o país já foi definido antes e não muda mais.
     if (!stripeAccountId) {
+      const countryCode = normalizeCountryCode(pais);
+
+      if (!countryCode) {
+        return res.status(400).json({
+          error: 'País não informado ou inválido. Envie um código de país no formato ISO (ex: BR, PT, US).',
+        });
+      }
+
+      if (!PAISES_SUPORTADOS.includes(countryCode)) {
+        return res.status(400).json({
+          error: `País "${countryCode}" não é suportado no momento. Países disponíveis: ${PAISES_SUPORTADOS.join(', ')}.`,
+        });
+      }
+
       const account = await stripe.accounts.create({
         type: 'express',
         email,
+        country: countryCode,
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },
@@ -380,6 +417,8 @@ exports.vincularContaStripe = async (req, res) => {
         'UPDATE public.usuarios SET stripe_account_id = $1 WHERE email = $2',
         [stripeAccountId, email]
       );
+
+      console.log(`✅ Nova conta Stripe Connect criada | País: ${countryCode} | Email: ${email}`);
     }
 
     const accountLink = await stripe.accountLinks.create({
@@ -590,7 +629,6 @@ exports.listarMeusIngressos = async (req, res) => {
     return res.status(500).json({ error: 'Erro ao buscar ingressos.' });
   }
 };
-
 
 exports.buscarComprasPorEvento = async (req, res) => {
   try {
