@@ -13,11 +13,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://linkah.eu';
 // ======================================================
 // PAÍSES SUPORTADOS PARA CRIAÇÃO DE CONTA STRIPE CONNECT
 // ======================================================
-<<<<<<< HEAD
-=======
-// Ajuste esta lista conforme os países que a Linkah deseja
-// habilitar para recebimento via Stripe Connect Express.
->>>>>>> ce5705b (Teste)
+
 const PAISES_SUPORTADOS = [
   'BR', 'PT', 'US', 'ES', 'FR', 'GB', 'DE', 'IT',
   'AR', 'MX', 'CA', 'NL', 'IE', 'CH', 'AT', 'BE'
