@@ -13,8 +13,6 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://linkah.eu';
 // ======================================================
 // PAÍSES SUPORTADOS PARA CRIAÇÃO DE CONTA STRIPE CONNECT
 // ======================================================
-// Ajuste esta lista conforme os países que a Linkah deseja
-// habilitar para recebimento via Stripe Connect Express.
 const PAISES_SUPORTADOS = [
   'BR', 'PT', 'US', 'ES', 'FR', 'GB', 'DE', 'IT',
   'AR', 'MX', 'CA', 'NL', 'IE', 'CH', 'AT', 'BE'
@@ -379,8 +377,6 @@ exports.vincularContaStripe = async (req, res) => {
     const registro = produtorResult.rows[0] || usuarioResult.rows[0];
     let stripeAccountId = registro?.stripe_account_id || null;
 
-    // Só valida e exige o país quando ainda não existe uma conta vinculada.
-    // Se a conta já existe, o país já foi definido antes e não muda mais.
     if (!stripeAccountId) {
       const countryCode = normalizeCountryCode(pais);
 
