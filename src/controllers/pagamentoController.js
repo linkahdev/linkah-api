@@ -105,6 +105,85 @@ function normalizeCountryCode(pais) {
 }
 
 // ======================================================
+// INSCRIÇÃO GRATUITA (SEM STRIPE)
+// ======================================================
+// Usada quando o total calculado é 0 — o Stripe não aceita cobranças
+// de valor zero, então para ingressos/eventos gratuitos gravamos a
+// "compra" direto como aprovada, sem passar pelo checkout de pagamento.
+async function registrarInscricaoGratuita({
+  res,
+  ev,
+  usuarioEmail,
+  usuarioNome,
+  quantidadeFinal,
+  moedaFinal,
+  afiliadoId,
+  comissaoPercentual,
+  nomeCracha,
+  instagramUser,
+  alergias,
+  comoConheceu,
+  baseUrl,
+}) {
+  const crypto = require('crypto');
+  const sessionIdFake = `FREE-${crypto.randomUUID()}`;
+
+  await db.query(
+    `INSERT INTO public.compras
+      (usuario_email, evento_id, evento_nome, data_evento, quantidade, valor_total, status, stripe_session_id, afiliado_id, valor_comissao, nome_cracha, instagram_user, alergias, como_conheceu)
+      VALUES ($1, $2, $3, $4, $5, $6, 'Aprovado', $7, $8, $9, $10, $11, $12, $13)
+      ON CONFLICT (stripe_session_id) DO NOTHING`,
+    [
+      safeString(usuarioEmail),
+      ev.id,
+      safeString(ev.nome, 'Evento'),
+      new Date(),
+      quantidadeFinal,
+      0,
+      sessionIdFake,
+      afiliadoId || null,
+      0,
+      nomeCracha || null,
+      instagramUser || null,
+      alergias || null,
+      comoConheceu || null,
+    ]
+  );
+
+  const dataEventoFormatada = formatDateBR(ev.data_inicio);
+  const horaEvento = safeString(ev.hora_inicio, 'Horário a definir');
+  const localEvento =
+    safeString(ev.local_nome) ||
+    (safeString(ev.tipo).toLowerCase() === 'online'
+      ? safeString(ev.link_reuniao, 'Evento online')
+      : 'Local a definir');
+
+  try {
+    await enviarIngressoEmail(safeString(usuarioEmail), {
+      tituloEvento: safeString(ev.nome, 'Evento'),
+      quantidade: safeString(quantidadeFinal, '1'),
+      linkIngresso: `${baseUrl}/pagamento/sucesso?session_id=${sessionIdFake}`,
+      dataEvento: safeString(dataEventoFormatada, 'A confirmar'),
+      horaEvento: safeString(horaEvento, 'A confirmar'),
+      localEvento: safeString(localEvento, 'Local a definir'),
+      tipo: safeString(ev.tipo, 'presencial'),
+    });
+  } catch (emailErr) {
+    console.error('❌ Erro ao enviar e-mail de inscrição gratuita:', emailErr);
+  }
+
+  console.log(`✅ Inscrição gratuita registrada | Evento: ${ev.id} | Email: ${usuarioEmail}`);
+
+  return res.json({
+    url: `${baseUrl}/pagamento/sucesso?session_id=${sessionIdFake}`,
+    gratuito: true,
+    total: 0,
+    quantidade: quantidadeFinal,
+    moeda: moedaFinal.toUpperCase(),
+  });
+}
+
+// ======================================================
 // 1. CRIAR SESSÃO DE CHECKOUT
 // ======================================================
 
@@ -208,7 +287,11 @@ exports.criarSessaoCheckout = async (req, res) => {
         const precoUnitario = safeNumber(ingresso.preco, 0);
         const moedaIngresso = normalizeCurrency(ingresso.moeda || ev.moeda || 'BRL');
 
-        if (precoUnitario <= 0) continue;
+        // Ingressos gratuitos (preco = 0) são válidos e CONTAM na seleção —
+        // eles só não somam valor ao total. Antes, este trecho pulava
+        // (`continue`) qualquer ingresso com preco <= 0, o que fazia a
+        // seleção inteira ser descartada e disparava o erro
+        // "Nenhum ingresso válido com preço configurado foi selecionado."
 
         if (quantidadeFinal === 0) {
           moedaFinal = moedaIngresso;
@@ -231,9 +314,9 @@ exports.criarSessaoCheckout = async (req, res) => {
         });
       }
 
-      if (quantidadeFinal <= 0 || totalFinal <= 0) {
+      if (quantidadeFinal <= 0) {
         return res.status(400).json({
-          error: 'Nenhum ingresso válido com preço configurado foi selecionado.',
+          error: 'Nenhum ingresso válido foi selecionado.',
         });
       }
     } else {
@@ -241,20 +324,36 @@ exports.criarSessaoCheckout = async (req, res) => {
       quantidadeFinal = safeInt(quantidade, 1);
       moedaFinal = normalizeCurrency(ev.moeda || evento?.moeda || 'BRL');
 
-      if (precoEvento <= 0) {
-        return res.status(400).json({
-          error: 'Este evento não tem um preço válido configurado no banco.',
-        });
-      }
-
       if (quantidadeFinal <= 0) {
         return res.status(400).json({
           error: 'Quantidade inválida para o checkout.',
         });
       }
 
+      // precoEvento pode ser 0 (evento gratuito) — tratado abaixo.
       totalFinal = precoEvento * quantidadeFinal;
       descricaoItens.push(`${quantidadeFinal}x Ingresso`);
+    }
+
+    // --- EVENTO/INGRESSO GRATUITO: pula o Stripe inteiramente ---
+    // O Stripe não aceita cobranças de valor 0, então quando o total
+    // calculado é 0 registramos a inscrição direto como aprovada.
+    if (totalFinal <= 0) {
+      return await registrarInscricaoGratuita({
+        res,
+        ev,
+        usuarioEmail,
+        usuarioNome,
+        quantidadeFinal,
+        moedaFinal,
+        afiliadoId,
+        comissaoPercentual,
+        nomeCracha,
+        instagramUser,
+        alergias,
+        comoConheceu,
+        baseUrl,
+      });
     }
 
     const totalEmCentavos = Math.round(totalFinal * 100);
@@ -578,6 +677,12 @@ exports.buscarDetalhesCompra = async (req, res) => {
 
     if (result.rows.length > 0) {
       return res.json(result.rows[0]);
+    }
+
+    // Inscrições gratuitas usam um ID sintético ("FREE-...") que nunca
+    // existe no Stripe — não faz sentido tentar consultar a API deles.
+    if (sessionId.startsWith('FREE-')) {
+      return res.status(404).json({ error: 'Compra não encontrada.' });
     }
 
     const session = await stripe.checkout.sessions.retrieve(sessionId);
