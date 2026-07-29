@@ -669,7 +669,7 @@ exports.buscarDetalhesCompra = async (req, res) => {
         e.link_reuniao,
         e.tipo
       FROM public.compras c
-      LEFT JOIN public.eventos e ON e.id = c.evento_id
+      LEFT JOIN public.eventos e ON e.id = c.evento_id::integer
       WHERE c.stripe_session_id = $1`,
       [sessionId]
     );
@@ -718,9 +718,9 @@ exports.listarMeusIngressos = async (req, res) => {
       `SELECT 
         c.*,
         e.link_reuniao,
-        TO_CHAR(c.data_evento, 'DD/MM/YYYY') AS data
+        TO_CHAR(c.data_evento::timestamp, 'DD/MM/YYYY') AS data
       FROM public.compras c
-      LEFT JOIN public.eventos e ON e.id = c.evento_id
+      LEFT JOIN public.eventos e ON e.id = c.evento_id::integer
       WHERE c.usuario_email = $1
       ORDER BY c.id DESC`,
       [email]
@@ -752,7 +752,7 @@ exports.buscarComprasPorEvento = async (req, res) => {
       FROM public.compras
       WHERE evento_id = $1
       ORDER BY id DESC`,
-      [safeInt(idEvento, 0)]
+      [String(safeInt(idEvento, 0))]
     );
 
     return res.json(result.rows);
