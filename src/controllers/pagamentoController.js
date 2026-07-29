@@ -131,8 +131,7 @@ async function registrarInscricaoGratuita({
   await db.query(
     `INSERT INTO public.compras
       (usuario_email, evento_id, evento_nome, data_evento, quantidade, valor_total, status, stripe_session_id, afiliado_id, valor_comissao, nome_cracha, instagram_user, alergias, como_conheceu)
-      VALUES ($1, $2, $3, $4, $5, $6, 'Aprovado', $7, $8, $9, $10, $11, $12, $13)
-      ON CONFLICT (stripe_session_id) DO NOTHING`,
+      VALUES ($1, $2, $3, $4, $5, $6, 'Aprovado', $7, $8, $9, $10, $11, $12, $13)`,
     [
       safeString(usuarioEmail),
       ev.id,
