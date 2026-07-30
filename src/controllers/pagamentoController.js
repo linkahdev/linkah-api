@@ -420,6 +420,37 @@ exports.criarSessaoCheckout = async (req, res) => {
     };
 
     if (ev.stripe_account_id) {
+      // Antes de usar transfer_data, confirmamos que a conta Connect do
+      // produtor já tem a capability "transfers" ATIVA. Ter um
+      // stripe_account_id não significa que a conta terminou o onboarding
+      // (KYC) — sem "transfers" ativo, o Stripe recusa a criação da sessão
+      // com o erro "destination account needs to have at least one of the
+      // following capabilities enabled: transfers...". Verificando aqui,
+      // evitamos que o comprador veja esse erro técnico no meio do checkout.
+      let contaProdutor;
+      try {
+        contaProdutor = await stripe.accounts.retrieve(ev.stripe_account_id);
+      } catch (accErr) {
+        console.error(
+          `❌ Erro ao consultar conta Stripe do produtor | Evento: ${ev.id} | Conta: ${ev.stripe_account_id}`,
+          accErr
+        );
+        return res.status(400).json({
+          error: 'Não foi possível validar a conta de recebimento do produtor deste evento. Tente novamente em instantes.',
+        });
+      }
+
+      const transfersAtivo = contaProdutor?.capabilities?.transfers === 'active';
+
+      if (!transfersAtivo) {
+        console.error(
+          `⚠️ Conta Connect sem capability 'transfers' ativa | Evento: ${ev.id} | Conta: ${ev.stripe_account_id} | capabilities: ${JSON.stringify(contaProdutor?.capabilities || {})}`
+        );
+        return res.status(400).json({
+          error: 'O produtor deste evento ainda não concluiu a configuração da conta de recebimento no Stripe. Peça para ele acessar o painel e finalizar o cadastro antes de vender ingressos pagos.',
+        });
+      }
+
       const taxaStaff = safeNumber(ev.taxa_plataforma, 0.05);
       const comissaoLinkah = Math.round(totalEmCentavos * taxaStaff);
 
