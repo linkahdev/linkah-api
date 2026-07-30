@@ -107,9 +107,6 @@ function normalizeCountryCode(pais) {
 // ======================================================
 // INSCRIÇÃO GRATUITA (SEM STRIPE)
 // ======================================================
-// Usada quando o total calculado é 0 — o Stripe não aceita cobranças
-// de valor zero, então para ingressos/eventos gratuitos gravamos a
-// "compra" direto como aprovada, sem passar pelo checkout de pagamento.
 async function registrarInscricaoGratuita({
   res,
   ev,
@@ -286,12 +283,6 @@ exports.criarSessaoCheckout = async (req, res) => {
         const precoUnitario = safeNumber(ingresso.preco, 0);
         const moedaIngresso = normalizeCurrency(ingresso.moeda || ev.moeda || 'BRL');
 
-        // Ingressos gratuitos (preco = 0) são válidos e CONTAM na seleção —
-        // eles só não somam valor ao total. Antes, este trecho pulava
-        // (`continue`) qualquer ingresso com preco <= 0, o que fazia a
-        // seleção inteira ser descartada e disparava o erro
-        // "Nenhum ingresso válido com preço configurado foi selecionado."
-
         if (quantidadeFinal === 0) {
           moedaFinal = moedaIngresso;
         } else if (moedaIngresso !== moedaFinal) {
@@ -329,14 +320,10 @@ exports.criarSessaoCheckout = async (req, res) => {
         });
       }
 
-      // precoEvento pode ser 0 (evento gratuito) — tratado abaixo.
       totalFinal = precoEvento * quantidadeFinal;
       descricaoItens.push(`${quantidadeFinal}x Ingresso`);
     }
 
-    // --- EVENTO/INGRESSO GRATUITO: pula o Stripe inteiramente ---
-    // O Stripe não aceita cobranças de valor 0, então quando o total
-    // calculado é 0 registramos a inscrição direto como aprovada.
     if (totalFinal <= 0) {
       return await registrarInscricaoGratuita({
         res,
@@ -420,13 +407,6 @@ exports.criarSessaoCheckout = async (req, res) => {
     };
 
     if (ev.stripe_account_id) {
-      // Antes de usar transfer_data, confirmamos que a conta Connect do
-      // produtor já tem a capability "transfers" ATIVA. Ter um
-      // stripe_account_id não significa que a conta terminou o onboarding
-      // (KYC) — sem "transfers" ativo, o Stripe recusa a criação da sessão
-      // com o erro "destination account needs to have at least one of the
-      // following capabilities enabled: transfers...". Verificando aqui,
-      // evitamos que o comprador veja esse erro técnico no meio do checkout.
       let contaProdutor;
       try {
         contaProdutor = await stripe.accounts.retrieve(ev.stripe_account_id);
@@ -444,7 +424,7 @@ exports.criarSessaoCheckout = async (req, res) => {
 
       if (!transfersAtivo) {
         console.error(
-          `⚠️ Conta Connect sem capability 'transfers' ativa | Evento: ${ev.id} | Conta: ${ev.stripe_account_id} | capabilities: ${JSON.stringify(contaProdutor?.capabilities || {})}`
+          `⚠️ Conta Connect sem capability 'transfers' ativa | Evento: ${ev.id} | Conta: ${ev.stripe_account_id}`
         );
         return res.status(400).json({
           error: 'O produtor deste evento ainda não concluiu a configuração da conta de recebimento no Stripe. Peça para ele acessar o painel e finalizar o cadastro antes de vender ingressos pagos.',
@@ -458,14 +438,6 @@ exports.criarSessaoCheckout = async (req, res) => {
         application_fee_amount: comissaoLinkah,
         transfer_data: { destination: ev.stripe_account_id },
       };
-
-      console.log(
-        `✅ Checkout Connect | Evento: ${ev.id} | Total: ${moedaFinal.toUpperCase()} ${totalFinal} | Taxa Linkah: ${taxaStaff * 100}%`
-      );
-    } else {
-      console.log(
-        `✅ Checkout padrão | Evento: ${ev.id} | Total: ${moedaFinal.toUpperCase()} ${totalFinal}`
-      );
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
@@ -483,7 +455,7 @@ exports.criarSessaoCheckout = async (req, res) => {
 };
 
 // ======================================================
-// 2. VINCULAR CONTA DO PRODUTOR (COM VALIDAÇÃO DE PAÍS)
+// 2. VINCULAR CONTA DO PRODUTOR (COM CORREÇÃO DE PAÍS)
 // ======================================================
 
 exports.vincularContaStripe = async (req, res) => {
@@ -492,6 +464,19 @@ exports.vincularContaStripe = async (req, res) => {
 
     if (!email) {
       return res.status(400).json({ error: 'E-mail não informado.' });
+    }
+
+    const countryCode = normalizeCountryCode(pais);
+    if (!countryCode) {
+      return res.status(400).json({
+        error: 'País não informado ou inválido. Envie um código de país no formato ISO (ex: BR, PT, US).',
+      });
+    }
+
+    if (!PAISES_SUPORTADOS.includes(countryCode)) {
+      return res.status(400).json({
+        error: `País "${countryCode}" não é suportado no momento. Países disponíveis: ${PAISES_SUPORTADOS.join(', ')}.`,
+      });
     }
 
     const produtorResult = await db.query(
@@ -507,23 +492,34 @@ exports.vincularContaStripe = async (req, res) => {
     const registro = produtorResult.rows[0] || usuarioResult.rows[0];
     let stripeAccountId = registro?.stripe_account_id || null;
 
-    // Só valida e exige o país quando ainda não existe uma conta vinculada.
-    // Se a conta já existe, o país já foi definido antes e não muda mais.
-    if (!stripeAccountId) {
-      const countryCode = normalizeCountryCode(pais);
+    let precisaCriarNova = false;
 
-      if (!countryCode) {
-        return res.status(400).json({
-          error: 'País não informado ou inválido. Envie um código de país no formato ISO (ex: BR, PT, US).',
-        });
+    if (stripeAccountId) {
+      try {
+        const contaExistente = await stripe.accounts.retrieve(stripeAccountId);
+        
+        // Se a conta antiga foi gerada em outro país (ex: BR) mas ele ainda
+        // NÃO terminou o cadastro (details_submitted = false), nós recriamos no novo país!
+        if (contaExistente.country !== countryCode) {
+          if (!contaExistente.details_submitted) {
+            console.log(`⚠️ Substituindo conta Stripe inacabada (${contaExistente.country} -> ${countryCode})`);
+            stripeAccountId = null;
+            precisaCriarNova = true;
+          } else {
+            return res.status(400).json({
+              error: `Esta conta já está vinculada ao país ${contaExistente.country} e possui dados enviados. Não é possível alterar o país de uma conta Stripe ativa por segurança.`,
+            });
+          }
+        }
+      } catch (e) {
+        stripeAccountId = null;
+        precisaCriarNova = true;
       }
+    } else {
+      precisaCriarNova = true;
+    }
 
-      if (!PAISES_SUPORTADOS.includes(countryCode)) {
-        return res.status(400).json({
-          error: `País "${countryCode}" não é suportado no momento. Países disponíveis: ${PAISES_SUPORTADOS.join(', ')}.`,
-        });
-      }
-
+    if (precisaCriarNova) {
       const account = await stripe.accounts.create({
         type: 'express',
         email,
@@ -709,8 +705,6 @@ exports.buscarDetalhesCompra = async (req, res) => {
       return res.json(result.rows[0]);
     }
 
-    // Inscrições gratuitas usam um ID sintético ("FREE-...") que nunca
-    // existe no Stripe — não faz sentido tentar consultar a API deles.
     if (sessionId.startsWith('FREE-')) {
       return res.status(404).json({ error: 'Compra não encontrada.' });
     }
