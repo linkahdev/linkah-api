@@ -1,4 +1,4 @@
-const { Resend } = require('resend');
+import { Resend } from 'resend';
 
 // LOG DE INICIALIZAÇÃO IMEDIATA
 console.log('--------------------------------------------------');
@@ -11,7 +11,7 @@ console.log('--------------------------------------------------');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const enviarIngressoEmail = async (emailCliente, dadosIngresso) => {
+export const enviarIngressoEmail = async (emailCliente, dadosIngresso) => {
   console.log(`\n--- 🚀 [DEBUG] DISPARANDO ENVIARINGRESSOEMAIL ---`);
   console.log(`📍 Para: ${emailCliente}`);
   console.log(`📍 Evento: ${dadosIngresso?.tituloEvento}`);
@@ -27,12 +27,10 @@ const enviarIngressoEmail = async (emailCliente, dadosIngresso) => {
       return null;
     }
 
-    // Define se o evento é online (independente de maiúscula/minúscula)
     const isOnline = dadosIngresso.tipo?.toLowerCase() === 'online';
     const localExibicao = isOnline ? '📍 Evento Online (Link Abaixo)' : (dadosIngresso.localEvento || 'A confirmar');
-    
-    // Bloco HTML condicional para o Link da Reunião
-    const blocoLinkReuniao = (isOnline && dadosIngresso.linkReuniao) 
+
+    const blocoLinkReuniao = (isOnline && dadosIngresso.linkReuniao)
       ? `
         <div style="margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center;">
           <p style="margin: 0 0 10px 0; color: #64748b; font-size: 14px;">Este evento será online. Acesse pelo link:</p>
@@ -48,9 +46,9 @@ const enviarIngressoEmail = async (emailCliente, dadosIngresso) => {
       ` : '';
 
     console.log('⏳ Aguardando resposta da API do Resend...');
-    
+
     const { data, error } = await resend.emails.send({
-      from: 'Linkah Eventos <contato@linkah.com.br>', 
+      from: 'Linkah Eventos <contato@linkah.com.br>',
       to: [emailCliente],
       subject: `🎟️ Seu ingresso para: ${dadosIngresso.tituloEvento}`,
       html: `
@@ -101,11 +99,11 @@ const enviarIngressoEmail = async (emailCliente, dadosIngresso) => {
   }
 };
 
-const sendMail = async (to, subject, html) => {
+export const sendMail = async (to, subject, html) => {
   console.log(`📧 [DEBUG] sendMail genérico para: ${to}`);
   try {
     const { data, error } = await resend.emails.send({
-      from: 'Linkah <contato@linkah.com.br>', 
+      from: 'Linkah <contato@linkah.com.br>',
       to: [to],
       subject: subject,
       html: html,
@@ -118,8 +116,6 @@ const sendMail = async (to, subject, html) => {
     return data;
   } catch (error) {
     console.error('❌ Erro crítico no sendMail:', error.message);
-    return null; 
+    return null;
   }
 };
-
-module.exports = { enviarIngressoEmail, sendMail };
