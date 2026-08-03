@@ -16,7 +16,7 @@ import comunidadeRoutes from './src/routes/comunidadeRoutes.js';
 import usuarioRoutes from './src/routes/usuarioRoutes.js'; 
 import onboardingRoutes from './src/routes/onboardingRoutes.js';
 
-import pagamentoController from './src/controllers/pagamentoController.js';
+import * as pagamentoController from './src/controllers/pagamentoController.js';
 import db from './src/config/database.js';
 
 const __filename = fileURLToPath(import.meta.url);
