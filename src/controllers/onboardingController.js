@@ -1,4 +1,6 @@
-import db from '../config/database.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const db = require('../config/database.js');
 
 // Extrai a função query do objeto exportado pelo database.js
 const { query } = db;
@@ -30,7 +32,6 @@ export const buscarMatches = async (req, res) => {
   try {
     const userId = req.usuarioId;
 
-    // Adicionado o SELECT que estava faltando na query
     const queryMatches = `
       SELECT up.*, u.nome, u.email 
       FROM user_preferences up
