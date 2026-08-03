@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import authController from '../controllers/authController.js';
+import * as authController from '../controllers/authController.js';
 import { uploadAvatar } from '../config/multer.js';
 
 const router = Router();
