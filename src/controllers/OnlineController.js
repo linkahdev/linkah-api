@@ -1,4 +1,4 @@
-const db = require('../config/database');
+import db from '../config/database.js';
 
 // Função de limpeza para evitar lixo no banco
 const limparCampo = (valor, fallback) => {
@@ -16,7 +16,7 @@ const limparCampo = (valor, fallback) => {
   return valor;
 };
 
-exports.criarEventoOnline = async (req, res) => {
+export const criarEventoOnline = async (req, res) => {
   console.log('--- 🌐 Iniciando criação de Evento Online (Modo FormData) ---');
 
   let imagemFinal = null;
