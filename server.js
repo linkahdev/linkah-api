@@ -1,20 +1,26 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const path = require('path');
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // ROTAS
-const authRoutes = require('./src/routes/authRoutes');
-const eventoRoutes = require('./src/routes/eventoRoutes');
-const compraRoutes = require('./src/routes/compraRoutes');
-const pagamentoRoutes = require('./src/routes/pagamentoRoutes');
-const comunidadeRoutes = require('./src/routes/comunidadeRoutes');
-const usuarioRoutes = require('./src/routes/usuarioRoutes'); 
-const onboardingRoutes = require('./src/routes/onboardingRoutes'); // <-- NOVO: Rotas de Onboarding
+import authRoutes from './src/routes/authRoutes.js';
+import eventoRoutes from './src/routes/eventoRoutes.js';
+import compraRoutes from './src/routes/compraRoutes.js';
+import pagamentoRoutes from './src/routes/pagamentoRoutes.js';
+import comunidadeRoutes from './src/routes/comunidadeRoutes.js';
+import usuarioRoutes from './src/routes/usuarioRoutes.js'; 
+import onboardingRoutes from './src/routes/onboardingRoutes.js';
 
-const pagamentoController = require('./src/controllers/pagamentoController');
-const db = require('./src/config/database');
+import pagamentoController from './src/controllers/pagamentoController.js';
+import db from './src/config/database.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -197,7 +203,7 @@ app.use('/api/pagamento', pagamentoRoutes);
 app.use('/api/compras', compraRoutes);
 app.use('/api/comunidades', comunidadeRoutes);
 app.use('/api/usuarios', usuarioRoutes);
-app.use('/api/onboarding', onboardingRoutes); // <-- NOVO: Registrado na API
+app.use('/api/onboarding', onboardingRoutes);
 
 // Health Check
 app.get('/ping', (req, res) => {
