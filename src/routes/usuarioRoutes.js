@@ -1,15 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../config/database');
-const bcrypt = require('bcrypt');
-const usuarioController = require('../controllers/usuarioController'); // Certifique-se que o caminho está correto
+import { Router } from 'express';
+import db from '../config/database.js';
+import bcrypt from 'bcrypt';
+import * as usuarioController from '../controllers/usuarioController.js';
+
+const router = Router();
 
 /**
  * ==========================================
- * 1️⃣ ROTA DE LOGIN (ESSA É A QUE ESTAVA FALTANDO!)
+ * 1️⃣ ROTA DE LOGIN
  * ==========================================
  */
-// Esta rota deve bater com: fetch(`${API_URL_BASE}/api/usuarios/login-admin`)
 router.post('/login-admin', usuarioController.loginAdmin);
 
 /**
@@ -18,13 +18,13 @@ router.post('/login-admin', usuarioController.loginAdmin);
  * ==========================================
  */
 router.get('/', async (req, res) => {
-    try {
-        const result = await db.query('SELECT id, nome, email, status, role FROM public.usuarios ORDER BY id DESC');
-        res.json(result.rows);
-    } catch (error) {
-        console.error("Erro ao buscar usuários:", error.message);
-        res.status(500).json({ error: "Erro ao buscar usuários" });
-    }
+  try {
+    const result = await db.query('SELECT id, nome, email, status, role FROM public.usuarios ORDER BY id DESC');
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Erro ao buscar usuários:", error.message);
+    res.status(500).json({ error: "Erro ao buscar usuários" });
+  }
 });
 
 /**
@@ -33,18 +33,15 @@ router.get('/', async (req, res) => {
  * ==========================================
  */
 router.put('/:id', async (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-    
-    try {
-        await db.query(
-            'UPDATE public.usuarios SET status = $1 WHERE id = $2',
-            [status, id]
-        );
-        res.json({ message: "Status atualizado!" });
-    } catch (error) {
-        res.status(500).json({ error: "Erro ao atualizar status" });
-    }
+  const { id } = req.params;
+  const { status } = req.body;
+
+  try {
+    await db.query('UPDATE public.usuarios SET status = $1 WHERE id = $2', [status, id]);
+    res.json({ message: "Status atualizado!" });
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao atualizar status" });
+  }
 });
 
 /**
@@ -53,21 +50,18 @@ router.put('/:id', async (req, res) => {
  * ==========================================
  */
 router.patch('/:id/senha', async (req, res) => {
-    const { id } = req.params;
-    const { senha } = req.body;
+  const { id } = req.params;
+  const { senha } = req.body;
 
-    try {
-        const salt = await bcrypt.genSalt(10);
-        const hash = await bcrypt.hash(senha, salt);
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash(senha, salt);
 
-        await db.query(
-            'UPDATE public.usuarios SET senha = $1 WHERE id = $2',
-            [hash, id]
-        );
-        res.json({ message: "Senha alterada com sucesso!" });
-    } catch (error) {
-        res.status(500).json({ error: "Erro ao atualizar senha" });
-    }
+    await db.query('UPDATE public.usuarios SET senha = $1 WHERE id = $2', [hash, id]);
+    res.json({ message: "Senha alterada com sucesso!" });
+  } catch (error) {
+    res.status(500).json({ error: "Erro ao atualizar senha" });
+  }
 });
 
-module.exports = router;
+export default router;

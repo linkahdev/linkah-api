@@ -1,9 +1,9 @@
-const express = require('express');
-const router = express.Router();
-const eventoController = require('../controllers/eventoController');
-const OnlineController = require('../controllers/OnlineController');
+import { Router } from 'express';
+import * as eventoController from '../controllers/eventoController.js';
+import * as OnlineController from '../controllers/OnlineController.js';
+import { uploadEvento } from '../config/multer.js';
 
-const { uploadEvento } = require('../config/multer');
+const router = Router();
 
 const uploadCamposEvento = uploadEvento.fields([
   { name: 'imagem_capa', maxCount: 1 },
@@ -35,4 +35,4 @@ router.patch('/:id/status', eventoController.atualizarStatus);
 // --- 7. INGRESSOS ---
 router.post('/:id/ingressos', eventoController.salvarIngressos);
 
-module.exports = router;
+export default router;
