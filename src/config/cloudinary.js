@@ -1,7 +1,9 @@
-const cloudinary = require('cloudinary').v2;
+import cloudinaryPkg from 'cloudinary';
+
+const cloudinary = cloudinaryPkg.v2;
 
 cloudinary.config({
   secure: true,
 });
 
-module.exports = cloudinary;
+export default cloudinary;
