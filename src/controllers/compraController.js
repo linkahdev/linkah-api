@@ -1,17 +1,17 @@
-const db = require('../config/database');
+import db from '../config/database.js';
 
 // --- REGISTRAR UMA NOVA COMPRA (Chamado pelo Webhook ou Checkout Manual) ---
-exports.finalizarCompra = async (req, res) => {
+export const finalizarCompra = async (req, res) => {
   try {
-    const { 
-      usuario_email, 
-      evento_id, 
-      evento_nome, 
-      data_evento, 
-      quantidade, 
-      valor_total, 
+    const {
+      usuario_email,
+      evento_id,
+      evento_nome,
+      data_evento,
+      quantidade,
+      valor_total,
       status,
-      stripe_session_id 
+      stripe_session_id
     } = req.body;
 
     const query = `
@@ -30,21 +30,21 @@ exports.finalizarCompra = async (req, res) => {
     `;
 
     const result = await db.query(query, [
-      usuario_email, 
-      evento_id, 
-      evento_nome, 
-      data_evento, 
-      quantidade, 
-      valor_total, 
+      usuario_email,
+      evento_id,
+      evento_nome,
+      data_evento,
+      quantidade,
+      valor_total,
       status || 'Aprovado',
       stripe_session_id || null
     ]);
 
     console.log(`✅ Compra ${result.rows[0].id} registrada para: ${usuario_email}`);
 
-    return res.status(201).json({ 
-      message: "Compra realizada com sucesso!", 
-      id_compra: result.rows[0].id 
+    return res.status(201).json({
+      message: "Compra realizada com sucesso!",
+      id_compra: result.rows[0].id
     });
   } catch (err) {
     console.error("❌ Erro ao salvar compra:", err.message);
@@ -53,7 +53,7 @@ exports.finalizarCompra = async (req, res) => {
 };
 
 // --- LISTAR COMPRAS DE UM USUÁRIO (Para a Navbar) ---
-exports.listarMinhasCompras = async (req, res) => {
+export const listarMinhasCompras = async (req, res) => {
   const { email } = req.query;
 
   if (!email) {
@@ -77,8 +77,7 @@ exports.listarMinhasCompras = async (req, res) => {
     `;
 
     const result = await db.query(query, [email]);
-    
-    // Retorna os dados para o Modal da Navbar
+
     return res.status(200).json(result.rows);
   } catch (err) {
     console.error("❌ Erro ao buscar compras no banco:", err.message);

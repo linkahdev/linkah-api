@@ -1,27 +1,20 @@
-const db = require('../config/database');
-const Groq = require("groq-sdk");
+import db from '../config/database.js';
+import Groq from "groq-sdk";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const CATEGORIAS_VALIDAS = [
-  'Arte & Cultura',
-  'Entretenimento',
-  'Negócios',
-  'Educação & Desenvolvimento',
-  'Esportes & Bem-estar',
-  'Experiências & Lifestyle',
-  'Família & Comunidade'
+  'Arte & Cultura', 'Entretenimento', 'Negócios',
+  'Educação & Desenvolvimento', 'Esportes & Bem-estar',
+  'Experiências & Lifestyle', 'Família & Comunidade'
 ];
 
 const MOEDAS_VALIDAS = ['BRL', 'EUR', 'USD'];
 
-// --- UTILS ---
 const limparCampo = (valor, fallback = '') => {
   if (
-    valor === undefined ||
-    valor === null ||
-    valor === 'undefined' ||
-    valor === 'null' ||
+    valor === undefined || valor === null ||
+    valor === 'undefined' || valor === 'null' ||
     String(valor).trim() === '' ||
     String(valor).includes('[object Object]')
   ) {
@@ -42,9 +35,7 @@ const normalizarEmail = (email) => {
 
 const normalizarCategoria = (categoria) => {
   const categoriaLimpa = limparCampo(categoria, 'Entretenimento');
-  return CATEGORIAS_VALIDAS.includes(categoriaLimpa)
-    ? categoriaLimpa
-    : 'Entretenimento';
+  return CATEGORIAS_VALIDAS.includes(categoriaLimpa) ? categoriaLimpa : 'Entretenimento';
 };
 
 const normalizarData = (valor) => {
@@ -57,9 +48,7 @@ const normalizarData = (valor) => {
     return `${ano}-${mes}-${dia}`;
   }
   const d = new Date(dataRaw);
-  if (!isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0];
-  }
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
   return null;
 };
 
@@ -90,11 +79,8 @@ const obterImagemFinal = (req, campo, imagemAtual = null) => {
   } else if (req.body[campo]) {
     const imgBody = req.body[campo];
     const isLixo =
-      !imgBody ||
-      imgBody === 'undefined' ||
-      imgBody === 'null' ||
-      String(imgBody).includes('/undefined') ||
-      String(imgBody).includes('[object Object]');
+      !imgBody || imgBody === 'undefined' || imgBody === 'null' ||
+      String(imgBody).includes('/undefined') || String(imgBody).includes('[object Object]');
     if (!isLixo) imagemFinal = String(imgBody).trim();
   }
   return imagemFinal;
@@ -113,10 +99,7 @@ const parsePreco = (valor) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-// ========================================
-// 1. LISTAR VITRINE (CORRIGIDO)
-// ========================================
-exports.listarTodosEventosParaVitrine = async (req, res) => {
+export const listarTodosEventosParaVitrine = async (req, res) => {
   try {
     const query = `
       SELECT
@@ -144,10 +127,7 @@ exports.listarTodosEventosParaVitrine = async (req, res) => {
   }
 };
 
-// ========================================
-// 2. LISTAR POR PRODUTOR (COM IMAGEM CAPA)
-// ========================================
-exports.listarEventosPorProdutor = async (req, res) => {
+export const listarEventosPorProdutor = async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: 'Email não fornecido' });
 
@@ -156,35 +136,18 @@ exports.listarEventosPorProdutor = async (req, res) => {
 
     const query = `
       SELECT
-        e.id,
-        e.nome,
-        e.produtor_email,
-        e.categoria,
-        e.descricao,
+        e.id, e.nome, e.produtor_email, e.categoria, e.descricao,
         CASE
           WHEN e.imagem_capa ILIKE '%undefined%' OR e.imagem_capa ILIKE '%null%' THEN NULL
           ELSE e.imagem_capa
         END AS imagem_capa,
         TO_CHAR(e.data_inicio, 'YYYY-MM-DD') AS data_inicio,
-        e.status,
-        e.moeda,
-        e.cidade,
-        e.local_nome,
+        e.status, e.moeda, e.cidade, e.local_nome,
         COALESCE(
-          (
-            SELECT MIN(CAST(i.preco AS NUMERIC))
-            FROM public.ingressos i
-            WHERE i.evento_id = e.id
-              AND CAST(i.preco AS NUMERIC) > 0
-          ),
+          (SELECT MIN(CAST(i.preco AS NUMERIC)) FROM public.ingressos i WHERE i.evento_id = e.id AND CAST(i.preco AS NUMERIC) > 0),
           0
         ) AS preco_minimo,
-        EXISTS (
-          SELECT 1
-          FROM public.ingressos i
-          WHERE i.evento_id = e.id
-            AND CAST(i.preco AS NUMERIC) = 0
-        ) AS possui_gratuito
+        EXISTS (SELECT 1 FROM public.ingressos i WHERE i.evento_id = e.id AND CAST(i.preco AS NUMERIC) = 0) AS possui_gratuito
       FROM public.eventos e
       WHERE TRIM(LOWER(e.produtor_email)) = $1
       ORDER BY e.id DESC
@@ -198,10 +161,7 @@ exports.listarEventosPorProdutor = async (req, res) => {
   }
 };
 
-// ========================================
-// 3. BUSCAR POR ID
-// ========================================
-exports.buscarEventoPorId = async (req, res) => {
+export const buscarEventoPorId = async (req, res) => {
   const { id } = req.params;
   try {
     const query = `
@@ -221,19 +181,8 @@ exports.buscarEventoPorId = async (req, res) => {
     const evento = result.rows[0];
 
     const resIng = await db.query(
-      `
-      SELECT
-        id,
-        evento_id,
-        nome,
-        descricao,
-        preco,
-        quantidade,
-        moeda
-      FROM public.ingressos
-      WHERE evento_id = $1
-      ORDER BY preco ASC
-      `,
+      `SELECT id, evento_id, nome, descricao, preco, quantidade, moeda
+       FROM public.ingressos WHERE evento_id = $1 ORDER BY preco ASC`,
       [id]
     );
 
@@ -250,10 +199,7 @@ exports.buscarEventoPorId = async (req, res) => {
   }
 };
 
-// ========================================
-// 4. CRIAR PRESENCIAL
-// ========================================
-exports.criarEventoPresencial = async (req, res) => {
+export const criarEventoPresencial = async (req, res) => {
   const imagemFinal = obterImagemFinal(req, 'imagem_capa');
   const bannerFinal = obterImagemFinal(req, 'banner_patrocinio');
   const moedaFinal = obterMoedaDoBody(req.body, 'BRL');
@@ -303,10 +249,7 @@ exports.criarEventoPresencial = async (req, res) => {
   }
 };
 
-// ========================================
-// 5. ATUALIZAR EVENTO
-// ========================================
-exports.atualizarEvento = async (req, res) => {
+export const atualizarEvento = async (req, res) => {
   const { id } = req.params;
   try {
     const check = await db.query('SELECT * FROM public.eventos WHERE id = $1', [id]);
@@ -357,10 +300,7 @@ exports.atualizarEvento = async (req, res) => {
     ];
     const result = await db.query(queryUpdate, values);
 
-    await db.query(
-      'UPDATE public.ingressos SET moeda = $1 WHERE evento_id = $2',
-      [moedaFinal, id]
-    );
+    await db.query('UPDATE public.ingressos SET moeda = $1 WHERE evento_id = $2', [moedaFinal, id]);
 
     return res.status(200).json({ message: 'Atualizado!', evento: result.rows[0] });
   } catch (err) {
@@ -368,10 +308,7 @@ exports.atualizarEvento = async (req, res) => {
   }
 };
 
-// ========================================
-// 6. EXCLUIR EVENTO
-// ========================================
-exports.excluirEvento = async (req, res) => {
+export const excluirEvento = async (req, res) => {
   const { id } = req.params;
   try {
     await db.query('DELETE FROM public.ingressos WHERE evento_id = $1', [id]);
@@ -382,19 +319,12 @@ exports.excluirEvento = async (req, res) => {
   }
 };
 
-// ========================================
-// 7. SALVAR INGRESSOS
-// ========================================
-exports.salvarIngressos = async (req, res) => {
+export const salvarIngressos = async (req, res) => {
   const { id } = req.params;
   const { ingressos } = req.body;
 
   try {
-    const ev = await db.query(
-      'SELECT moeda FROM public.eventos WHERE id = $1',
-      [id]
-    );
-
+    const ev = await db.query('SELECT moeda FROM public.eventos WHERE id = $1', [id]);
     if (ev.rows.length === 0) {
       return res.status(404).json({ error: 'Evento não encontrado' });
     }
@@ -406,42 +336,20 @@ exports.salvarIngressos = async (req, res) => {
     if (ingressos && Array.isArray(ingressos)) {
       for (const ing of ingressos) {
         await db.query(
-          `
-          INSERT INTO public.ingressos (
-            evento_id,
-            nome,
-            descricao,
-            preco,
-            quantidade,
-            moeda
-          )
-          VALUES ($1, $2, $3, $4, $5, $6)
-          `,
-          [
-            id,
-            limparCampo(ing.nome, 'Ingresso'),
-            limparCampo(ing.descricao, ''),
-            parsePreco(ing.preco),
-            limparNumero(ing.quantidade, 0),
-            moedaEvento,
-          ]
+          `INSERT INTO public.ingressos (evento_id, nome, descricao, preco, quantidade, moeda)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, limparCampo(ing.nome, 'Ingresso'), limparCampo(ing.descricao, ''), parsePreco(ing.preco), limparNumero(ing.quantidade, 0), moedaEvento]
         );
       }
     }
 
-    return res.status(200).json({
-      message: 'Salvo!',
-      moeda: moedaEvento,
-    });
+    return res.status(200).json({ message: 'Salvo!', moeda: moedaEvento });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 };
 
-// ========================================
-// 8. ATUALIZAR STATUS
-// ========================================
-exports.atualizarStatus = async (req, res) => {
+export const atualizarStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
@@ -452,10 +360,7 @@ exports.atualizarStatus = async (req, res) => {
   }
 };
 
-// ========================================
-// 9. GERAR COM IA
-// ========================================
-exports.gerarComIA = async (req, res) => {
+export const gerarComIA = async (req, res) => {
   const { texto } = req.body;
   if (!texto) return res.status(400).json({ error: 'Forneça um texto.' });
 
@@ -479,5 +384,91 @@ exports.gerarComIA = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ error: 'IA falhou.' });
+  }
+};
+
+export const criarEventoOnline = async (req, res) => {
+  console.log('--- 🌐 Iniciando criação de Evento Online (Modo FormData) ---');
+
+  let imagemFinal = null;
+
+  if (req.file) {
+    imagemFinal = req.file.location || req.file.filename || req.file.path;
+    if (imagemFinal && !String(imagemFinal).startsWith('http')) {
+      imagemFinal = req.file.filename;
+    }
+  }
+
+  if (!imagemFinal && req.body.imagem_capa) {
+    const imgBody = req.body.imagem_capa;
+    const isLixo =
+      !imgBody || imgBody === 'undefined' || imgBody === 'null' ||
+      String(imgBody).includes('/undefined') || String(imgBody).includes('[object Object]');
+
+    if (!isLixo) {
+      imagemFinal =
+        typeof imgBody === 'string' && imgBody.includes('/uploads/')
+          ? imgBody.split('/uploads/').pop()
+          : imgBody;
+    }
+  }
+
+  const {
+    produtor_email, nome, categoria, link_reuniao, descricao,
+    data_inicio, hora_inicio, data_termino, hora_termino,
+    status, tipo, local_nome, capacidade, regras, visibilidade, moeda
+  } = req.body;
+
+  console.log('📦 BODY RECEBIDO:', req.body);
+  console.log('🖼️ FILE RECEBIDO:', req.file ? req.file.originalname : 'Nenhum arquivo');
+
+  if (!produtor_email || !nome) {
+    return res.status(400).json({ error: 'E-mail do produtor e nome do evento são obrigatórios.' });
+  }
+
+  try {
+    const query = `
+      INSERT INTO public.eventos (
+        produtor_email, nome, categoria, link_reuniao, descricao,
+        data_inicio, hora_inicio, data_termino, hora_termino,
+        status, tipo, imagem_capa, local_nome, capacidade, regras, visibilidade, moeda
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      RETURNING id
+    `;
+
+    const values = [
+      produtor_email.toLowerCase().trim(),
+      limparCampo(nome, 'Novo Evento Online'),
+      limparCampo(categoria, 'Geral'),
+      limparCampo(link_reuniao, ''),
+      limparCampo(descricao, ''),
+      data_inicio || null,
+      hora_inicio || null,
+      data_termino || null,
+      hora_termino || null,
+      limparCampo(status, 'Ativo'),
+      limparCampo(tipo, 'Online'),
+      imagemFinal,
+      limparCampo(local_nome, 'Plataforma Online'),
+      parseInt(capacidade) || 0,
+      limparCampo(regras, ''),
+      limparCampo(visibilidade, 'Publico'),
+      limparCampo(moeda, 'BRL')
+    ];
+
+    const result = await db.query(query, values);
+
+    console.log(`✅ Evento Online criado com ID: ${result.rows[0].id}`);
+
+    return res.status(201).json({
+      id: result.rows[0].id,
+      message: 'Evento Online registrado com sucesso!'
+    });
+  } catch (err) {
+    console.error('❌ ERRO NO BANCO DE DADOS:', err.message);
+    return res.status(500).json({
+      error: 'Erro ao salvar evento online.',
+      detalhe: err.message
+    });
   }
 };
