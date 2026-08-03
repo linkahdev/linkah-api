@@ -221,7 +221,7 @@ exports.registerProdutor = async (req, res) => {
 };
 
 // -----------------------------
-// 2️⃣ LOGIN
+// 2️⃣ LOGIN (ATUALIZADO COM CHECK DE ONBOARDING)
 // -----------------------------
 exports.login = async (req, res) => {
   console.log('🔑 [LOGIN] Tentativa...');
@@ -241,7 +241,10 @@ exports.login = async (req, res) => {
       [email, senha]
     );
 
+    let isProdutor = true;
+
     if (result.rows.length === 0) {
+      isProdutor = false;
       result = await db.query(
         'SELECT * FROM public.usuarios WHERE LOWER(email)=$1 AND senha=$2',
         [email, senha]
@@ -255,6 +258,19 @@ exports.login = async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Verifica se o usuário já preencheu o onboarding na tabela user_preferences
+    let hasOnboarding = false;
+    try {
+      const prefResult = await db.query(
+        'SELECT 1 FROM public.user_preferences WHERE user_id = $1',
+        [user.id]
+      );
+      hasOnboarding = prefResult.rows.length > 0;
+    } catch (e) {
+      // Caso a tabela ainda não exista por algum motivo pontual, assume false com segurança
+      hasOnboarding = false;
+    }
 
     const token = jwt.sign(
       {
@@ -270,7 +286,10 @@ exports.login = async (req, res) => {
 
     return res.status(200).json({
       token,
-      user
+      user: {
+        ...user,
+        hasOnboarding // <-- Enviado para o front-end decidir se abre o onboarding ou o dashboard direto
+      }
     });
 
   } catch (err) {

@@ -10,7 +10,8 @@ const eventoRoutes = require('./src/routes/eventoRoutes');
 const compraRoutes = require('./src/routes/compraRoutes');
 const pagamentoRoutes = require('./src/routes/pagamentoRoutes');
 const comunidadeRoutes = require('./src/routes/comunidadeRoutes');
-const usuarioRoutes = require('./src/routes/usuarioRoutes'); // <-- ADICIONADO
+const usuarioRoutes = require('./src/routes/usuarioRoutes'); 
+const onboardingRoutes = require('./src/routes/onboardingRoutes'); // <-- NOVO: Rotas de Onboarding
 
 const pagamentoController = require('./src/controllers/pagamentoController');
 const db = require('./src/config/database');
@@ -30,13 +31,8 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Permite requests sem origin (como mobile apps ou curl)
     if (!origin) return callback(null, true);
-
-    // Checa se está na lista fixa
     const isAllowed = allowedOrigins.includes(origin);
-    
-    // Checa se é um preview da Vercel (Regex para aceitar subdomínios da Vercel do seu projeto)
     const isVercelPreview = origin.includes('vercel.app') && origin.includes('linkah');
 
     if (isAllowed || isVercelPreview) {
@@ -111,7 +107,7 @@ const inicializarBanco = async () => {
     console.log('🔄 Sincronizando tabelas e colunas...');
     await db.query('SELECT NOW()');
 
-    // Criação das tabelas base
+    // Criação das tabelas base (Incluindo user_preferences para o Onboarding)
     await db.query(`
       CREATE TABLE IF NOT EXISTS public.usuarios (
         id SERIAL PRIMARY KEY,
@@ -138,11 +134,21 @@ const inicializarBanco = async () => {
         nome VARCHAR(255) NOT NULL,
         status VARCHAR(50) DEFAULT 'Ativo'
       );
+
+      CREATE TABLE IF NOT EXISTS public.user_preferences (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES public.usuarios(id) ON DELETE CASCADE UNIQUE,
+        cidade VARCHAR(255),
+        setor VARCHAR(255),
+        genero_filme VARCHAR(255),
+        personalidade VARCHAR(255),
+        qualidades JSONB,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrações Automáticas (Colunas Adicionais)
     const migrations = [
-      // Eventos (Suporte para Presencial e Banner de Patrocínio)
       "ALTER TABLE public.eventos ADD COLUMN IF NOT EXISTS descricao TEXT",
       "ALTER TABLE public.eventos ADD COLUMN IF NOT EXISTS preco DECIMAL(10,2) DEFAULT 0",
       "ALTER TABLE public.eventos ADD COLUMN IF NOT EXISTS imagem_capa TEXT",
@@ -161,11 +167,9 @@ const inicializarBanco = async () => {
       "ALTER TABLE public.eventos ADD COLUMN IF NOT EXISTS estado VARCHAR(10)",
       "ALTER TABLE public.eventos ADD COLUMN IF NOT EXISTS capacidade INTEGER",
       
-      // Produtores
       "ALTER TABLE public.produtores ADD COLUMN IF NOT EXISTS cpf_cnpj VARCHAR(255)",
       "ALTER TABLE public.produtores ADD COLUMN IF NOT EXISTS bio TEXT",
       
-      // Usuarios
       "ALTER TABLE public.usuarios ADD COLUMN IF NOT EXISTS foto TEXT",
       "ALTER TABLE public.usuarios ADD COLUMN IF NOT EXISTS bio TEXT"
     ];
@@ -192,7 +196,8 @@ app.use('/api/eventos', eventoRoutes);
 app.use('/api/pagamento', pagamentoRoutes);
 app.use('/api/compras', compraRoutes);
 app.use('/api/comunidades', comunidadeRoutes);
-app.use('/api/usuarios', usuarioRoutes); // <-- ADICIONADO
+app.use('/api/usuarios', usuarioRoutes);
+app.use('/api/onboarding', onboardingRoutes); // <-- NOVO: Registrado na API
 
 // Health Check
 app.get('/ping', (req, res) => {
