@@ -1,10 +1,16 @@
-import pg from 'pg';
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
 
-const { Pool } = pg;
+dotenv.config();
 
 let connectionString = process.env.DATABASE_URL;
 if (connectionString) {
+  // Remove parâmetros incompatíveis e garante que o modo SSL exigido esteja presente
   connectionString = connectionString.split('&channel_binding=')[0];
+  if (!connectionString.includes('sslmode=')) {
+    connectionString += (connectionString.includes('?') ? '&' : '?') + 'sslmode=require';
+  }
 }
 
 const isProduction = !!connectionString;
@@ -32,7 +38,14 @@ pool.query('SELECT NOW()', (err, res) => {
   }
 });
 
-export default {
+const dbExport = {
   query: (text, params) => pool.query(text, params),
   pool
 };
+
+export default dbExport;
+
+// Compatibilidade caso algum arquivo ainda use CommonJS
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = dbExport;
+}
