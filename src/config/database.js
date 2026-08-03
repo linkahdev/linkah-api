@@ -1,4 +1,6 @@
-const { Pool } = require('pg');
+import pg from 'pg';
+
+const { Pool } = pg;
 
 let connectionString = process.env.DATABASE_URL;
 if (connectionString) {
@@ -23,12 +25,14 @@ pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.error('❌ ERRO NA CONEXÃO COM O BANCO:', err.message);
   } else {
-    const hostInfo = process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1].split('/')[0] : process.env.DB_HOST;
+    const hostInfo = process.env.DATABASE_URL
+      ? process.env.DATABASE_URL.split('@')[1].split('/')[0]
+      : process.env.DB_HOST;
     console.log('🐘 CONECTADO AO BANCO:', hostInfo);
   }
 });
 
-module.exports = {
+export default {
   query: (text, params) => pool.query(text, params),
   pool
 };
