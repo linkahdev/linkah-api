@@ -1,17 +1,16 @@
-const { Resend } = require('resend');
+import { Resend } from 'resend';
 
-// O Token deve estar no seu painel do Render (Environment Variables)
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Função genérica para enviar e-mails (Boas-vindas, Recuperação, etc.)
  * Configurada para chegar em qualquer provedor.
  */
-const sendMail = async (to, subject, html) => {
+export const sendMail = async (to, subject, html) => {
   try {
     const { data, error } = await resend.emails.send({
       // IMPORTANTE: Agora que seu domínio está verificado, use @linkah.com.br
-      from: 'Linkah <contato@linkah.com.br>', 
+      from: 'Linkah <contato@linkah.com.br>',
       to: [to],
       subject: subject,
       html: html,
@@ -26,8 +25,6 @@ const sendMail = async (to, subject, html) => {
     return data;
   } catch (error) {
     console.error('❌ Erro crítico no envio (Resend):', error.message);
-    return null; 
+    return null;
   }
 };
-
-module.exports = sendMail;
