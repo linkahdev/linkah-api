@@ -3,8 +3,14 @@ import db from '../config/database.js';
 export const salvarRespostasOnboarding = async (req, res) => {
   try {
     const userId = req.usuarioId;
+    const userRole = req.usuarioRole;
+
     if (!userId) {
       return res.status(401).json({ error: 'Usuário não autenticado.' });
+    }
+
+    if (userRole === 'produtor') {
+      return res.status(403).json({ error: 'Onboarding disponível apenas para contas de usuário.' });
     }
 
     const { cidade, setor, generoFilme, personalidade, qualidades } = req.body;
@@ -23,16 +29,21 @@ export const salvarRespostasOnboarding = async (req, res) => {
     return res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error('Erro ao salvar onboarding:', error);
-    // DEBUG TEMPORÁRIO — reverter depois de identificar o problema
-    return res.status(500).json({ error: error.message, code: error.code, detail: error.detail });
+    return res.status(500).json({ error: 'Erro interno ao salvar preferências.' });
   }
 };
 
 export const buscarMatches = async (req, res) => {
   try {
     const userId = req.usuarioId;
+    const userRole = req.usuarioRole;
+
     if (!userId) {
       return res.status(401).json({ error: 'Usuário não autenticado.' });
+    }
+
+    if (userRole === 'produtor') {
+      return res.status(403).json({ error: 'Conexões disponíveis apenas para contas de usuário.' });
     }
 
     const minhaCidade = await db.query(
@@ -58,7 +69,6 @@ export const buscarMatches = async (req, res) => {
     return res.status(200).json({ success: true, matches: matches.rows, cidade });
   } catch (error) {
     console.error('Erro ao buscar matches:', error);
-    // DEBUG TEMPORÁRIO — reverter depois de identificar o problema
-    return res.status(500).json({ error: error.message, code: error.code, detail: error.detail });
+    return res.status(500).json({ error: 'Erro ao buscar conexões.' });
   }
 };
