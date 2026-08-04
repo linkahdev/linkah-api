@@ -1,9 +1,4 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const db = require('../config/database.js');
-
-// Extrai a função query do objeto exportado pelo database.js
-const { query } = db;
+import db from '../config/database.js';
 
 export const salvarRespostasOnboarding = async (req, res) => {
   try {
@@ -19,7 +14,9 @@ export const salvarRespostasOnboarding = async (req, res) => {
     `;
     
     const values = [userId, cidade, setor, generoFilme, personalidade, JSON.stringify(qualidades)];
-    const result = await query(queryString, values);
+    
+    // Altere de 'query(...)' para 'db.query(...)'
+    const result = await db.query(queryString, values);
 
     return res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
@@ -40,7 +37,8 @@ export const buscarMatches = async (req, res) => {
       LIMIT 10
     `;
     
-    const matches = await query(queryMatches, [userId]);
+    // Altere de 'query(...)' para 'db.query(...)'
+    const matches = await db.query(queryMatches, [userId]);
 
     return res.status(200).json({ success: true, matches: matches.rows });
   } catch (error) {
