@@ -23,7 +23,8 @@ export const salvarRespostasOnboarding = async (req, res) => {
     return res.status(200).json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error('Erro ao salvar onboarding:', error);
-    return res.status(500).json({ error: 'Erro interno ao salvar preferências.' });
+    // DEBUG TEMPORÁRIO — reverter depois de identificar o problema
+    return res.status(500).json({ error: error.message, code: error.code, detail: error.detail });
   }
 };
 
@@ -34,7 +35,6 @@ export const buscarMatches = async (req, res) => {
       return res.status(401).json({ error: 'Usuário não autenticado.' });
     }
 
-    // Busca a cidade do próprio usuário logado
     const minhaCidade = await db.query(
       `SELECT cidade FROM user_preferences WHERE user_id = $1`,
       [userId]
@@ -42,7 +42,6 @@ export const buscarMatches = async (req, res) => {
     const cidade = minhaCidade.rows[0]?.cidade || null;
 
     if (!cidade) {
-      // usuário ainda não fez onboarding
       return res.status(400).json({ error: 'Onboarding não concluído.' });
     }
 
@@ -59,6 +58,7 @@ export const buscarMatches = async (req, res) => {
     return res.status(200).json({ success: true, matches: matches.rows, cidade });
   } catch (error) {
     console.error('Erro ao buscar matches:', error);
-    return res.status(500).json({ error: 'Erro ao buscar conexões.' });
+    // DEBUG TEMPORÁRIO — reverter depois de identificar o problema
+    return res.status(500).json({ error: error.message, code: error.code, detail: error.detail });
   }
 };
