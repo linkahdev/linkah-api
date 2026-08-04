@@ -15,6 +15,7 @@ import pagamentoRoutes from './src/routes/pagamentoRoutes.js';
 import comunidadeRoutes from './src/routes/comunidadeRoutes.js';
 import usuarioRoutes from './src/routes/usuarioRoutes.js'; 
 import onboardingRoutes from './src/routes/onboardingRoutes.js';
+import chatRoutes from './src/routes/chatRoutes.js'; // <- Rota do Chat
 
 import * as pagamentoController from './src/controllers/pagamentoController.js';
 import db from './src/config/database.js';
@@ -113,7 +114,7 @@ const inicializarBanco = async () => {
     console.log('🔄 Sincronizando tabelas e colunas...');
     await db.query('SELECT NOW()');
 
-    // Criação das tabelas base (Incluindo user_preferences para o Onboarding)
+    // Criação das tabelas base (Incluindo user_preferences e mensagens_match)
     await db.query(`
       CREATE TABLE IF NOT EXISTS public.usuarios (
         id SERIAL PRIMARY KEY,
@@ -150,6 +151,14 @@ const inicializarBanco = async () => {
         personalidade VARCHAR(255),
         qualidades JSONB,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS public.mensagens_match (
+        id SERIAL PRIMARY KEY,
+        remetente_id INT NOT NULL,
+        destinatario_id INT NOT NULL,
+        texto TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
       );
     `);
 
@@ -204,6 +213,7 @@ app.use('/api/compras', compraRoutes);
 app.use('/api/comunidades', comunidadeRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/chat', chatRoutes); // <- Registro da rota do Chat
 
 // Health Check
 app.get('/ping', (req, res) => {
