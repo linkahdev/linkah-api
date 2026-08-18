@@ -27,13 +27,13 @@ import chatRoutes from './src/routes/chatRoutes.js';
 import * as pagamentoController from './src/controllers/pagamentoController.js';
 
 // ============================================================
-// DATABASE
+// BANCO
 // ============================================================
 
 import db from './src/config/database.js';
 
 // ============================================================
-// CONFIGURAÇÕES
+// CONFIG
 // ============================================================
 
 const __filename = fileURLToPath(import.meta.url);
@@ -45,6 +45,7 @@ app.set('trust proxy', 1);
 
 // ============================================================
 // CORS
+// IMPORTANTE: VEM ANTES DAS ROTAS E PARSERS
 // ============================================================
 
 const allowedOrigins = [
@@ -58,36 +59,46 @@ const allowedOrigins = [
   'http://127.0.0.1:3001'
 ];
 
-const corsOptions = {
-  origin(origin, callback) {
-    // Permite Postman, servidor, etc.
-    if (!origin) {
-      return callback(null, true);
-    }
+function origemPermitida(origin) {
+  // Postman, Render healthcheck etc.
+  if (!origin) {
+    return true;
+  }
 
-    const isAllowed =
-      allowedOrigins.includes(origin);
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
 
-    const isVercelPreview =
-      origin.includes('vercel.app') &&
-      origin.toLowerCase().includes('linkah');
+  // Preview da Vercel
+  try {
+    const url = new URL(origin);
 
     if (
-      isAllowed ||
-      isVercelPreview
+      url.hostname.endsWith('.vercel.app') &&
+      url.hostname.toLowerCase().includes('linkah')
     ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (origemPermitida(origin)) {
       return callback(null, true);
     }
 
-    console.log(
-      '❌ CORS bloqueado para:',
+    console.error(
+      '❌ [CORS] Origem bloqueada:',
       origin
     );
 
     return callback(
-      new Error(
-        `CORS bloqueado para ${origin}`
-      )
+      new Error(`CORS bloqueado para ${origin}`)
     );
   },
 
@@ -95,29 +106,55 @@ const corsOptions = {
     'GET',
     'POST',
     'PUT',
-    'DELETE',
     'PATCH',
+    'DELETE',
     'OPTIONS'
+  ],
+
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization'
+  ],
+
+  exposedHeaders: [
+    'Content-Length'
   ],
 
   credentials: true,
 
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization'
-  ],
+  optionsSuccessStatus: 204,
 
-  optionsSuccessStatus: 204
+  maxAge: 86400
 };
 
-app.use(
-  cors(corsOptions)
-);
+// ============================================================
+// CORS GLOBAL
+// ============================================================
 
-app.options(
-  '*',
-  cors(corsOptions)
-);
+app.use(cors(corsOptions));
+
+// Não precisa usar app.options('*').
+// O cors global acima já responde preflight OPTIONS.
+
+// ============================================================
+// DEBUG CORS
+// Pode deixar temporariamente até tudo funcionar
+// ============================================================
+
+app.use((req, res, next) => {
+  console.log('🌐 [REQUEST]', {
+    method: req.method,
+    path: req.originalUrl,
+    origin: req.headers.origin || 'sem-origin',
+    contentType: req.headers['content-type'] || 'sem-content-type',
+    authorization: Boolean(req.headers.authorization)
+  });
+
+  next();
+});
 
 // ============================================================
 // HELMET
@@ -137,7 +174,8 @@ app.use(
 
 // ============================================================
 // STRIPE WEBHOOK
-// TEM QUE VIR ANTES DO express.json()
+//
+// PRECISA VIR ANTES DO express.json()
 // ============================================================
 
 app.post(
@@ -150,28 +188,28 @@ app.post(
     type: 'application/json'
   }),
 
-  (req, res) => {
-    const webhookHandler =
-      pagamentoController.ouvirStripe ||
-      pagamentoController.webhookStripe;
+  async (req, res, next) => {
+    try {
+      const webhookHandler =
+        pagamentoController.ouvirStripe ||
+        pagamentoController.webhookStripe;
 
-    if (
-      typeof webhookHandler ===
-      'function'
-    ) {
-      return webhookHandler(
-        req,
-        res
-      );
+      if (
+        typeof webhookHandler !== 'function'
+      ) {
+        console.error(
+          '❌ Webhook Stripe não configurado.'
+        );
+
+        return res.status(500).send(
+          'Webhook handler not configured'
+        );
+      }
+
+      return webhookHandler(req, res);
+    } catch (error) {
+      return next(error);
     }
-
-    console.error(
-      '❌ Webhook Stripe não configurado.'
-    );
-
-    return res.status(500).send(
-      'Webhook handler not configured'
-    );
   }
 );
 
@@ -207,23 +245,6 @@ app.use(
 );
 
 // ============================================================
-// LOG DAS REQUISIÇÕES
-// ============================================================
-
-app.use(
-  (req, res, next) => {
-    console.log(
-      `📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url} | Origem: ${
-        req.headers.origin ||
-        'sem-origin'
-      }`
-    );
-
-    next();
-  }
-);
-
-// ============================================================
 // BANCO
 // ============================================================
 
@@ -233,7 +254,6 @@ async function inicializarBanco() {
       '🔄 Sincronizando banco de dados...'
     );
 
-    // Testa conexão
     await db.query(
       'SELECT NOW()'
     );
@@ -405,11 +425,10 @@ async function inicializarBanco() {
     // ========================================================
     // ONBOARDING
     //
-    // IMPORTANTE:
-    // Não usamos FK direta em user_id porque esse ID pode
-    // pertencer a usuarios OU produtores.
+    // user_id pode pertencer a:
+    // usuario OU produtor.
     //
-    // Quem diferencia é tipo_conta.
+    // tipo_conta diferencia.
     // ========================================================
 
     await db.query(`
@@ -461,50 +480,52 @@ async function inicializarBanco() {
     `);
 
     // ========================================================
-    // MIGRAÇÕES DE USUÁRIOS
+    // MIGRAÇÕES
     // ========================================================
 
     const migrations = [
+      // ======================================================
       // USUÁRIOS
+      // ======================================================
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS avatar TEXT
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS avatar TEXT
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS foto TEXT
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS foto TEXT
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS apelido VARCHAR(80)
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS apelido VARCHAR(80)
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS bio TEXT
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS bio TEXT
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS instagram VARCHAR(255)
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS instagram VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS linkedin VARCHAR(255)
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS linkedin VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS telefone VARCHAR(50)
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS telefone VARCHAR(50)
       `,
 
       `
-      ALTER TABLE public.usuarios
-      ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255)
+        ALTER TABLE public.usuarios
+        ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255)
       `,
 
       // ======================================================
@@ -512,88 +533,89 @@ async function inicializarBanco() {
       // ======================================================
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS id SERIAL
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS id SERIAL
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS avatar TEXT
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS avatar TEXT
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS apelido VARCHAR(80)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS apelido VARCHAR(80)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS bio TEXT
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS bio TEXT
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS instagram VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS instagram VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS linkedin VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS linkedin VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS cpf_cnpj VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS cpf_cnpj VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS telefone VARCHAR(50)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS telefone VARCHAR(50)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS tipo VARCHAR(10) DEFAULT 'PF'
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS tipo VARCHAR(10)
+        DEFAULT 'PF'
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS data_nascimento VARCHAR(50)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS data_nascimento VARCHAR(50)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS cep VARCHAR(20)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS cep VARCHAR(20)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS rua VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS rua VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS numero VARCHAR(50)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS numero VARCHAR(50)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS bairro VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS bairro VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS estado VARCHAR(10)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS estado VARCHAR(10)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS razao_social VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS razao_social VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.produtores
-      ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255)
+        ALTER TABLE public.produtores
+        ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255)
       `,
 
       // ======================================================
@@ -601,88 +623,90 @@ async function inicializarBanco() {
       // ======================================================
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS descricao TEXT
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS descricao TEXT
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS preco DECIMAL(10,2) DEFAULT 0
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS preco DECIMAL(10,2)
+        DEFAULT 0
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS imagem_capa TEXT
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS imagem_capa TEXT
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS banner_patrocinio TEXT
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS banner_patrocinio TEXT
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS categoria VARCHAR(100)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS categoria VARCHAR(100)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS data_inicio DATE
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS data_inicio DATE
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS hora_inicio TIME
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS hora_inicio TIME
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS data_termino DATE
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS data_termino DATE
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS hora_termino TIME
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS hora_termino TIME
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS tipo VARCHAR(50) DEFAULT 'Presencial'
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS tipo VARCHAR(50)
+        DEFAULT 'Presencial'
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS local_nome VARCHAR(255)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS local_nome VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS cep VARCHAR(20)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS cep VARCHAR(20)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS endereco VARCHAR(255)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS endereco VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS numero VARCHAR(50)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS numero VARCHAR(50)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS cidade VARCHAR(255)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS cidade VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS estado VARCHAR(10)
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS estado VARCHAR(10)
       `,
 
       `
-      ALTER TABLE public.eventos
-      ADD COLUMN IF NOT EXISTS capacidade INTEGER
+        ALTER TABLE public.eventos
+        ADD COLUMN IF NOT EXISTS capacidade INTEGER
       `,
 
       // ======================================================
@@ -690,45 +714,48 @@ async function inicializarBanco() {
       // ======================================================
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS tipo_conta VARCHAR(20)
-      DEFAULT 'usuario'
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS tipo_conta VARCHAR(20)
+        DEFAULT 'usuario'
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS cidade VARCHAR(255)
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS cidade VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS setor VARCHAR(255)
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS setor VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS genero_filme VARCHAR(255)
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS genero_filme VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS personalidade VARCHAR(255)
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS personalidade VARCHAR(255)
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS qualidades JSONB
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS qualidades JSONB
       `,
 
       `
-      ALTER TABLE public.user_preferences
-      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ALTER TABLE public.user_preferences
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP
       `
     ];
 
-    for (
-      const sql of migrations
-    ) {
+    // ========================================================
+    // EXECUTA MIGRAÇÕES
+    // ========================================================
+
+    for (const sql of migrations) {
       try {
         await db.query(sql);
       } catch (err) {
@@ -740,7 +767,7 @@ async function inicializarBanco() {
     }
 
     // ========================================================
-    // CORRIGE O ID DOS PRODUTORES
+    // PRODUTORES.ID
     // ========================================================
 
     try {
@@ -751,20 +778,19 @@ async function inicializarBanco() {
       `);
 
       console.log(
-        '✅ Índice produtores.id pronto.'
+        '✅ produtores.id pronto.'
       );
     } catch (err) {
       console.error(
-        '⚠️ Erro índice produtores:',
+        '⚠️ produtores.id:',
         err.message
       );
     }
 
     // ========================================================
-    // REMOVE FK ANTIGA DO ONBOARDING
+    // REMOVE FK ANTIGA
     //
-    // Antes user_preferences.user_id apontava apenas para
-    // usuarios(id). Isso impedia produtor.
+    // user_preferences antes apontava somente para usuarios.
     // ========================================================
 
     try {
@@ -775,7 +801,7 @@ async function inicializarBanco() {
       `);
 
       console.log(
-        '✅ FK antiga user_preferences removida.'
+        '✅ FK antiga do onboarding removida.'
       );
     } catch (err) {
       console.error(
@@ -785,10 +811,7 @@ async function inicializarBanco() {
     }
 
     // ========================================================
-    // REMOVE UNIQUE ANTIGO DE user_id
-    //
-    // Agora queremos:
-    // UNIQUE(user_id, tipo_conta)
+    // REMOVE UNIQUE ANTIGO
     // ========================================================
 
     try {
@@ -799,17 +822,17 @@ async function inicializarBanco() {
       `);
 
       console.log(
-        '✅ Unique antigo do onboarding removido.'
+        '✅ Unique antigo removido.'
       );
     } catch (err) {
       console.error(
-        '⚠️ Unique onboarding:',
+        '⚠️ Unique antigo:',
         err.message
       );
     }
 
     // ========================================================
-    // GARANTE tipo_conta
+    // GARANTE TIPO_CONTA
     // ========================================================
 
     try {
@@ -832,7 +855,11 @@ async function inicializarBanco() {
     }
 
     // ========================================================
-    // UNIQUE CORRETO PARA ONBOARDING
+    // ÍNDICE COMPOSTO
+    //
+    // Necessário para:
+    //
+    // ON CONFLICT (user_id, tipo_conta)
     // ========================================================
 
     try {
@@ -847,7 +874,7 @@ async function inicializarBanco() {
       `);
 
       console.log(
-        '✅ Índice do onboarding pronto.'
+        '✅ Índice onboarding pronto.'
       );
     } catch (err) {
       console.error(
@@ -857,18 +884,21 @@ async function inicializarBanco() {
     }
 
     // ========================================================
-    // SINCRONIZA AVATAR ANTIGO
-    //
-    // Se você já tinha usuários usando "foto",
-    // copia para "avatar" quando avatar estiver vazio.
+    // COPIA FOTO ANTIGA PARA AVATAR
     // ========================================================
 
     try {
       await db.query(`
         UPDATE public.usuarios
+
         SET avatar = foto
+
         WHERE
-          (avatar IS NULL OR avatar = '')
+          (
+            avatar IS NULL
+            OR avatar = ''
+          )
+
           AND foto IS NOT NULL
           AND foto <> '';
       `);
@@ -880,7 +910,7 @@ async function inicializarBanco() {
     }
 
     // ========================================================
-    // STATUS
+    // CONTADORES
     // ========================================================
 
     const usuarios =
@@ -906,7 +936,7 @@ async function inicializarBanco() {
     );
 
     console.log(
-      '✅ ESTRUTURA DO BANCO PRONTA'
+      '✅ BANCO PRONTO'
     );
 
     console.log(
@@ -931,7 +961,7 @@ async function inicializarBanco() {
     );
 
     console.error(
-      'Mensagem:',
+      '❌ Mensagem:',
       err.message
     );
   }
@@ -982,7 +1012,7 @@ app.use(
 );
 
 // ============================================================
-// HEALTH CHECK
+// PING
 // ============================================================
 
 app.get(
@@ -994,30 +1024,38 @@ app.get(
           'SELECT NOW() AS agora'
         );
 
-      return res.status(200).json({
-        status:
-          'Linkah API Online',
+      return res
+        .status(200)
+        .json({
+          success: true,
 
-        database:
-          'connected',
+          status:
+            'Linkah API Online',
 
-        timestamp:
-          new Date(),
+          database:
+            'connected',
 
-        postgres:
-          banco.rows[0].agora
-      });
+          timestamp:
+            new Date(),
+
+          postgres:
+            banco.rows[0].agora
+        });
     } catch (err) {
-      return res.status(500).json({
-        status:
-          'Linkah API com erro',
+      return res
+        .status(500)
+        .json({
+          success: false,
 
-        database:
-          'disconnected',
+          status:
+            'Linkah API com erro',
 
-        error:
-          err.message
-      });
+          database:
+            'disconnected',
+
+          error:
+            err.message
+        });
     }
   }
 );
@@ -1027,28 +1065,24 @@ app.get(
 // ============================================================
 
 app.use(
-  (req, res, next) => {
-    if (
-      res.headersSent
-    ) {
-      return next();
-    }
+  (req, res) => {
+    return res
+      .status(404)
+      .json({
+        error:
+          'Rota não encontrada.',
 
-    return res.status(404).json({
-      error:
-        'Rota não encontrada.',
+        method:
+          req.method,
 
-      method:
-        req.method,
-
-      path:
-        req.originalUrl
-    });
+        path:
+          req.originalUrl
+      });
   }
 );
 
 // ============================================================
-// TRATAMENTO GLOBAL DE ERROS
+// ERROR HANDLER
 // ============================================================
 
 app.use(
@@ -1059,53 +1093,165 @@ app.use(
     next
   ) => {
     console.error(
-      '❌ ERRO DETECTADO:',
+      '========================================'
+    );
+
+    console.error(
+      '❌ ERRO GLOBAL'
+    );
+
+    console.error(
+      'Método:',
+      req.method
+    );
+
+    console.error(
+      'URL:',
+      req.originalUrl
+    );
+
+    console.error(
+      'Origin:',
+      req.headers.origin
+    );
+
+    console.error(
+      'Content-Type:',
+      req.headers['content-type']
+    );
+
+    console.error(
+      'Erro:',
       err
     );
+
+    console.error(
+      '========================================'
+    );
+
+    // ========================================================
+    // CORS
+    // ========================================================
 
     if (
       err.message?.includes(
         'CORS'
       )
     ) {
-      return res.status(403).json({
-        error:
-          'CORS Error',
+      return res
+        .status(403)
+        .json({
+          error:
+            'CORS_ERROR',
 
-        message:
-          'Origem não permitida pela Linkah API'
-      });
+          message:
+            'Origem não permitida pela API.'
+        });
     }
 
-    // Multer - arquivo muito grande
+    // ========================================================
+    // MULTER — TAMANHO
+    // ========================================================
+
     if (
       err.code ===
       'LIMIT_FILE_SIZE'
     ) {
-      return res.status(400).json({
-        error:
-          'Arquivo muito grande.',
+      return res
+        .status(400)
+        .json({
+          error:
+            'FILE_TOO_LARGE',
 
-        message:
-          'A imagem pode ter no máximo 10MB.'
-      });
+          message:
+            'A imagem pode ter no máximo 10MB.'
+        });
     }
 
-    return res.status(500).json({
-      error:
-        'Internal Server Error',
+    // ========================================================
+    // MULTER — CAMPO ERRADO
+    // ========================================================
 
-      message:
-        process.env.NODE_ENV ===
-        'development'
-          ? err.message
-          : 'Erro interno no servidor.'
-    });
+    if (
+      err.code ===
+      'LIMIT_UNEXPECTED_FILE'
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            'INVALID_FILE_FIELD',
+
+          message:
+            'O campo da imagem deve se chamar "avatar".'
+        });
+    }
+
+    // ========================================================
+    // FORMATOS DE IMAGEM
+    // ========================================================
+
+    if (
+      err.message?.includes(
+        'Formato'
+      )
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            'INVALID_IMAGE',
+
+          message:
+            err.message
+        });
+    }
+
+    // ========================================================
+    // ERRO PADRÃO
+    // ========================================================
+
+    return res
+      .status(500)
+      .json({
+        error:
+          'INTERNAL_SERVER_ERROR',
+
+        message:
+          process.env.NODE_ENV ===
+          'development'
+            ? err.message
+            : 'Erro interno no servidor.'
+      });
   }
 );
 
 // ============================================================
-// INICIALIZAÇÃO
+// EVITA PROCESSO CAIR SEM LOG
+// ============================================================
+
+process.on(
+  'unhandledRejection',
+  (reason) => {
+    console.error(
+      '❌ UNHANDLED REJECTION:',
+      reason
+    );
+  }
+);
+
+process.on(
+  'uncaughtException',
+  (error) => {
+    console.error(
+      '❌ UNCAUGHT EXCEPTION:',
+      error
+    );
+  }
+);
+
+// ============================================================
+// START
 // ============================================================
 
 const PORT =
@@ -1121,7 +1267,7 @@ app.listen(
     );
 
     console.log(
-      `🚀 Linkah API rodando na porta ${PORT}`
+      `🚀 Linkah API na porta ${PORT}`
     );
 
     console.log(
@@ -1129,6 +1275,17 @@ app.listen(
         process.env.NODE_ENV ||
         'development'
       }`
+    );
+
+    console.log(
+      '✅ CORS permitido para:'
+    );
+
+    allowedOrigins.forEach(
+      (origin) =>
+        console.log(
+          `   → ${origin}`
+        )
     );
 
     console.log(
