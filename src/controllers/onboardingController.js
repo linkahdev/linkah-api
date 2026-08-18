@@ -27,9 +27,7 @@ function parseQualidades(value) {
     return {};
   }
 
-  if (
-    typeof value === 'object'
-  ) {
+  if (typeof value === 'object') {
     return value;
   }
 
@@ -39,6 +37,10 @@ function parseQualidades(value) {
     return {};
   }
 }
+
+// ============================================================
+// UPLOAD CLOUDINARY
+// ============================================================
 
 function uploadBufferToCloudinary(
   buffer,
@@ -59,15 +61,12 @@ function uploadBufferToCloudinary(
             public_id:
               `${tipoConta}-${userId}-${Date.now()}`,
 
-            overwrite:
-              true,
-
             transformation: [
               {
                 width: 600,
                 height: 600,
                 crop: 'fill',
-                gravity: 'face'
+                gravity: 'auto'
               },
 
               {
@@ -79,9 +78,13 @@ function uploadBufferToCloudinary(
 
           (error, result) => {
             if (error) {
-              return reject(
+              console.error(
+                '❌ CLOUDINARY:',
                 error
               );
+
+              reject(error);
+              return;
             }
 
             resolve(result);
@@ -99,9 +102,6 @@ function uploadBufferToCloudinary(
 
 export const salvarRespostasOnboarding =
   async (req, res) => {
-    const client =
-      await db.connect();
-
     try {
       const userId =
         req.usuarioId;
@@ -119,6 +119,20 @@ export const salvarRespostasOnboarding =
         normalizarTipoConta(
           req.usuarioRole
         );
+
+      console.log(
+        '📝 ONBOARDING:',
+        {
+          userId,
+          tipoConta,
+          temArquivo:
+            Boolean(req.file)
+        }
+      );
+
+      // ======================================================
+      // FORM DATA
+      // ======================================================
 
       const cidade =
         safeString(
@@ -151,7 +165,7 @@ export const salvarRespostasOnboarding =
         );
 
       // ======================================================
-      // VALIDAÇÕES
+      // VALIDAÇÃO
       // ======================================================
 
       if (!cidade) {
@@ -179,7 +193,7 @@ export const salvarRespostasOnboarding =
           .status(400)
           .json({
             error:
-              'O apelido precisa ter pelo menos 2 caracteres.'
+              'O apelido deve ter pelo menos 2 caracteres.'
           });
       }
 
@@ -204,15 +218,7 @@ export const salvarRespostasOnboarding =
       }
 
       // ======================================================
-      // INICIA TRANSAÇÃO
-      // ======================================================
-
-      await client.query(
-        'BEGIN'
-      );
-
-      // ======================================================
-      // VERIFICA CONTA
+      // DESCOBRE TABELA
       // ======================================================
 
       const tabela =
@@ -221,16 +227,21 @@ export const salvarRespostasOnboarding =
           ? 'produtores'
           : 'usuarios';
 
-      const usuarioResult =
-        await client.query(
+      // ======================================================
+      // VERIFICA SE A CONTA EXISTE
+      // ======================================================
+
+      const contaResult =
+        await db.query(
           `
             SELECT
               id,
               nome,
               email,
-              avatar,
               apelido,
-              bio
+              avatar,
+              bio,
+              role
 
             FROM public.${tabela}
 
@@ -242,11 +253,15 @@ export const salvarRespostasOnboarding =
         );
 
       if (
-        usuarioResult.rows
-          .length === 0
+        contaResult.rows.length ===
+        0
       ) {
-        await client.query(
-          'ROLLBACK'
+        console.error(
+          '❌ Conta não encontrada:',
+          {
+            userId,
+            tabela
+          }
         );
 
         return res
@@ -258,47 +273,59 @@ export const salvarRespostasOnboarding =
       }
 
       // ======================================================
-      // UPLOAD CLOUDINARY
+      // CLOUDINARY
       // ======================================================
 
-      let avatarUrl = null;
+      console.log(
+        '☁️ Enviando avatar para Cloudinary...'
+      );
+
+      let uploadResult;
 
       try {
-        const uploadResult =
+        uploadResult =
           await uploadBufferToCloudinary(
             req.file.buffer,
             userId,
             tipoConta
           );
-
-        avatarUrl =
-          uploadResult.secure_url;
-      } catch (
-        uploadError
-      ) {
+      } catch (error) {
         console.error(
-          '❌ Erro Cloudinary:',
-          uploadError
-        );
-
-        await client.query(
-          'ROLLBACK'
+          '❌ Erro upload Cloudinary:',
+          error
         );
 
         return res
           .status(500)
           .json({
             error:
-              'Não foi possível enviar a foto de perfil.'
+              'Erro ao enviar foto de perfil.'
           });
       }
 
+      const avatarUrl =
+        uploadResult?.secure_url;
+
+      if (!avatarUrl) {
+        return res
+          .status(500)
+          .json({
+            error:
+              'Cloudinary não retornou a URL da imagem.'
+          });
+      }
+
+      console.log(
+        '✅ Avatar Cloudinary:',
+        avatarUrl
+      );
+
       // ======================================================
-      // SALVA APELIDO + AVATAR
+      // ATUALIZA PERFIL
       // ======================================================
 
-      const updateUser =
-        await client.query(
+      const userResult =
+        await db.query(
           `
             UPDATE public.${tabela}
 
@@ -324,8 +351,31 @@ export const salvarRespostasOnboarding =
           ]
         );
 
+      if (
+        userResult.rows.length ===
+        0
+      ) {
+        return res
+          .status(500)
+          .json({
+            error:
+              'Não foi possível atualizar o perfil.'
+          });
+      }
+
       const user =
-        updateUser.rows[0];
+        userResult.rows[0];
+
+      console.log(
+        '✅ Perfil atualizado:',
+        {
+          id: user.id,
+          apelido:
+            user.apelido,
+          avatar:
+            user.avatar
+        }
+      );
 
       // ======================================================
       // SALVA PREFERÊNCIAS
@@ -360,6 +410,7 @@ export const salvarRespostasOnboarding =
         )
 
         DO UPDATE SET
+
           cidade =
             EXCLUDED.cidade,
 
@@ -394,18 +445,23 @@ export const salvarRespostasOnboarding =
       ];
 
       const preferencesResult =
-        await client.query(
+        await db.query(
           queryString,
           values
         );
 
-      // ======================================================
-      // COMMIT
-      // ======================================================
-
-      await client.query(
-        'COMMIT'
+      console.log(
+        '✅ Onboarding salvo:',
+        {
+          userId,
+          tipoConta,
+          cidade
+        }
       );
+
+      // ======================================================
+      // RESPOSTA
+      // ======================================================
 
       return res
         .status(200)
@@ -426,19 +482,14 @@ export const salvarRespostasOnboarding =
 
           user: {
             ...user,
+
             hasOnboarding:
               true
           }
         });
     } catch (error) {
-      try {
-        await client.query(
-          'ROLLBACK'
-        );
-      } catch {}
-
       console.error(
-        '❌ Erro ao salvar onboarding:',
+        '❌ ERRO SALVAR ONBOARDING:',
         error
       );
 
@@ -454,8 +505,6 @@ export const salvarRespostasOnboarding =
               ? error.message
               : undefined
         });
-    } finally {
-      client.release();
     }
   };
 
@@ -484,7 +533,7 @@ export const buscarMatches =
         );
 
       // ======================================================
-      // BUSCA CIDADE DO USUÁRIO
+      // CIDADE DO USUÁRIO
       // ======================================================
 
       const minhaCidade =
@@ -519,20 +568,38 @@ export const buscarMatches =
           });
       }
 
+      console.log(
+        '🔎 Buscando matches:',
+        {
+          userId,
+          tipoConta,
+          cidade
+        }
+      );
+
       // ======================================================
-      // BUSCA MATCHES
+      // MATCHES
       // ======================================================
 
       const queryMatches = `
         SELECT
+
           up.id,
+
           up.user_id,
+
           up.tipo_conta,
+
           up.cidade,
+
           up.setor,
+
           up.genero_filme,
+
           up.personalidade,
+
           up.qualidades,
+
           up.updated_at,
 
           COALESCE(
@@ -563,23 +630,30 @@ export const buscarMatches =
         FROM public.user_preferences up
 
         LEFT JOIN public.usuarios u
+
           ON
             up.tipo_conta =
               'usuario'
+
             AND u.id =
               up.user_id
 
         LEFT JOIN public.produtores p
+
           ON
             up.tipo_conta =
               'produtor'
+
             AND p.id =
               up.user_id
 
         WHERE
+
           NOT (
             up.user_id = $1
+
             AND
+
             up.tipo_conta = $2
           )
 
@@ -601,23 +675,21 @@ export const buscarMatches =
           ]
         );
 
-      // ======================================================
-      // NORMALIZA NOME EXIBIDO
-      // ======================================================
-
       const matches =
         matchesResult.rows.map(
           (match) => ({
             ...match,
 
-            // No frontend você pode usar
-            // display_name direto se quiser
             display_name:
               match.apelido ||
               match.nome ||
               'Membro Linkah'
           })
         );
+
+      console.log(
+        `✅ ${matches.length} matches encontrados.`
+      );
 
       return res
         .status(200)
@@ -633,7 +705,7 @@ export const buscarMatches =
         });
     } catch (error) {
       console.error(
-        '❌ Erro ao buscar matches:',
+        '❌ ERRO BUSCAR MATCHES:',
         error
       );
 
