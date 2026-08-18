@@ -20,16 +20,33 @@ function emptyToNull(value) {
 
 function getErrorMessage(err) {
   if (!err) return 'Erro desconhecido';
-  if (typeof err === 'string') return err;
-  if (typeof err.message === 'string' && err.message.trim()) return err.message;
+
+  if (typeof err === 'string') {
+    return err;
+  }
+
+  if (typeof err.message === 'string' && err.message.trim()) {
+    return err.message;
+  }
+
   try {
     const asString = err.toString?.();
-    if (typeof asString === 'string' && asString.trim() && asString !== '[object Object]') {
+
+    if (
+      typeof asString === 'string' &&
+      asString.trim() &&
+      asString !== '[object Object]'
+    ) {
       return asString;
     }
   } catch {}
+
   return 'Erro desconhecido';
 }
+
+// ============================================================
+// INICIALIZA TABELAS
+// ============================================================
 
 async function inicializarTabelasAutenticacao() {
   try {
@@ -77,23 +94,27 @@ async function inicializarTabelasAutenticacao() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log('✅ [BANCO] Tabelas public.produtores e public.usuarios prontas para uso!');
+
+    console.log('✅ Tabelas de autenticação prontas.');
   } catch (err) {
-    console.error('❌ [BANCO] Erro ao criar a estrutura de autenticação:', err);
+    console.error('❌ Erro ao criar tabelas:', err);
   }
 }
 
 inicializarTabelasAutenticacao();
 
-// -----------------------------
-// 1️⃣ REGISTRO DE PRODUTOR
-// -----------------------------
+// ============================================================
+// REGISTRO DE PRODUTOR
+// ============================================================
+
 export const registerProdutor = async (req, res) => {
   console.log('📝 [REGISTRO] Iniciando cadastro...');
+
   try {
     const nome = safeString(req.body.nome);
     const email = safeLowerEmail(req.body.email);
     const senha = safeString(req.body.senha);
+
     const cpf_cnpj = emptyToNull(req.body.cpf_cnpj);
     const telefone = emptyToNull(req.body.telefone);
     const tipo = safeString(req.body.tipo || 'PF') || 'PF';
@@ -102,227 +123,588 @@ export const registerProdutor = async (req, res) => {
     const rua = emptyToNull(req.body.rua);
     const numero = emptyToNull(req.body.numero);
     const bairro = emptyToNull(req.body.bairro);
-    const estado = emptyToNull(req.body.estado ? String(req.body.estado).toUpperCase() : null);
+    const estado = emptyToNull(
+      req.body.estado
+        ? String(req.body.estado).toUpperCase()
+        : null
+    );
     const razao_social = emptyToNull(req.body.razao_social);
 
-    if (!nome) return res.status(400).json({ message: 'Nome é obrigatório.' });
-    if (!email) return res.status(400).json({ message: 'E-mail é obrigatório.' });
-    if (!/\S+@\S+\.\S+/.test(email)) return res.status(400).json({ message: 'E-mail inválido.' });
-    if (!senha) return res.status(400).json({ message: 'Senha é obrigatória.' });
-    if (senha.length < 6) return res.status(400).json({ message: 'A senha deve ter pelo menos 6 caracteres.' });
+    if (!nome) {
+      return res.status(400).json({
+        message: 'Nome é obrigatório.'
+      });
+    }
 
+    if (!email) {
+      return res.status(400).json({
+        message: 'E-mail é obrigatório.'
+      });
+    }
+
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      return res.status(400).json({
+        message: 'E-mail inválido.'
+      });
+    }
+
+    if (!senha) {
+      return res.status(400).json({
+        message: 'Senha é obrigatória.'
+      });
+    }
+
+    if (senha.length < 6) {
+      return res.status(400).json({
+        message: 'A senha deve ter pelo menos 6 caracteres.'
+      });
+    }
+
+    // Verifica se já existe
     const checkUser = await db.query(
-      `SELECT email FROM public.produtores WHERE LOWER(email) = $1
-       UNION
-       SELECT email FROM public.usuarios WHERE LOWER(email) = $1`,
+      `
+        SELECT email
+        FROM public.produtores
+        WHERE LOWER(email) = $1
+
+        UNION
+
+        SELECT email
+        FROM public.usuarios
+        WHERE LOWER(email) = $1
+      `,
       [email]
     );
 
     if (checkUser.rows.length > 0) {
-      return res.status(400).json({ message: 'Este e-mail já está cadastrado.' });
+      return res.status(400).json({
+        message: 'Este e-mail já está cadastrado.'
+      });
     }
 
+    // Cria produtor
     const result = await db.query(
-      `INSERT INTO public.produtores (
-        nome, email, senha, cpf_cnpj, telefone, tipo,
-        data_nascimento, cep, rua, numero, bairro, estado,
-        razao_social, status, role
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-      RETURNING id,nome,email`,
-      [nome, email, senha, cpf_cnpj, telefone, tipo, data_nascimento, cep, rua, numero, bairro, estado, razao_social, 'Ativo', 'produtor']
+      `
+        INSERT INTO public.produtores (
+          nome,
+          email,
+          senha,
+          cpf_cnpj,
+          telefone,
+          tipo,
+          data_nascimento,
+          cep,
+          rua,
+          numero,
+          bairro,
+          estado,
+          razao_social,
+          status,
+          role
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+        )
+        RETURNING
+          id,
+          nome,
+          email,
+          role,
+          status
+      `,
+      [
+        nome,
+        email,
+        senha,
+        cpf_cnpj,
+        telefone,
+        tipo,
+        data_nascimento,
+        cep,
+        rua,
+        numero,
+        bairro,
+        estado,
+        razao_social,
+        'Ativo',
+        'produtor'
+      ]
     );
 
     const user = result.rows[0];
 
+    // ========================================================
+    // GERA TOKEN JÁ NO CADASTRO
+    // ========================================================
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role || 'produtor'
+      },
+      JWT_SECRET,
+      {
+        expiresIn: '7d'
+      }
+    );
+
+    // Envia e-mail sem quebrar o cadastro caso falhe
     try {
-      await sendMail(email, 'Bem-vindo à Linkah!', `<h2>Olá ${nome}</h2><p>Sua conta foi criada com sucesso.</p>`);
+      await sendMail(
+        email,
+        'Bem-vindo à Linkah!',
+        `
+          <h2>Olá ${nome}</h2>
+          <p>Sua conta foi criada com sucesso.</p>
+        `
+      );
     } catch (mailErr) {
-      console.log('MAIL ERROR:', getErrorMessage(mailErr));
+      console.log(
+        '⚠️ MAIL ERROR:',
+        getErrorMessage(mailErr)
+      );
     }
 
-    return res.status(201).json({ message: 'Cadastro realizado com sucesso!', user });
+    console.log('✅ Cadastro realizado:', user.email);
+
+    return res.status(201).json({
+      message: 'Cadastro realizado com sucesso!',
+      token,
+      user: {
+        ...user,
+        hasOnboarding: false
+      }
+    });
   } catch (err) {
     console.error('❌ ERRO REGISTRO:', err);
-    return res.status(500).json({ message: 'Erro ao cadastrar', error: getErrorMessage(err) });
+
+    return res.status(500).json({
+      message: 'Erro ao cadastrar',
+      error: getErrorMessage(err)
+    });
   }
 };
 
-// -----------------------------
-// 2️⃣ LOGIN
-// -----------------------------
+// ============================================================
+// LOGIN
+// ============================================================
+
 export const login = async (req, res) => {
   console.log('🔑 [LOGIN] Tentativa...');
+
   try {
     const email = safeLowerEmail(req.body.email);
     const senha = safeString(req.body.senha);
 
-    if (!email || !senha) return res.status(400).json({ message: 'Dados incompletos.' });
+    if (!email || !senha) {
+      return res.status(400).json({
+        message: 'Dados incompletos.'
+      });
+    }
 
-    let result = await db.query('SELECT * FROM public.produtores WHERE LOWER(email)=$1 AND senha=$2', [email, senha]);
+    let result = await db.query(
+      `
+        SELECT *
+        FROM public.produtores
+        WHERE LOWER(email) = $1
+        AND senha = $2
+      `,
+      [email, senha]
+    );
+
     let isProdutor = true;
 
     if (result.rows.length === 0) {
       isProdutor = false;
-      result = await db.query('SELECT * FROM public.usuarios WHERE LOWER(email)=$1 AND senha=$2', [email, senha]);
+
+      result = await db.query(
+        `
+          SELECT *
+          FROM public.usuarios
+          WHERE LOWER(email) = $1
+          AND senha = $2
+        `,
+        [email, senha]
+      );
     }
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'Credenciais incorretas.' });
+      return res.status(401).json({
+        message: 'Credenciais incorretas.'
+      });
     }
 
     const user = result.rows[0];
 
     let hasOnboarding = false;
+
     try {
-      const prefResult = await db.query('SELECT 1 FROM public.user_preferences WHERE user_id = $1', [user.id]);
+      const prefResult = await db.query(
+        `
+          SELECT 1
+          FROM public.user_preferences
+          WHERE user_id = $1
+          AND tipo_conta = $2
+          LIMIT 1
+        `,
+        [
+          user.id,
+          isProdutor ? 'produtor' : 'usuario'
+        ]
+      );
+
       hasOnboarding = prefResult.rows.length > 0;
     } catch (e) {
+      console.error(
+        '⚠️ Erro ao verificar onboarding:',
+        e
+      );
+
       hasOnboarding = false;
     }
 
+    const role =
+      user.role ||
+      (isProdutor ? 'produtor' : 'user');
+
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role || 'user' },
+      {
+        id: user.id,
+        email: user.email,
+        role
+      },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      {
+        expiresIn: '7d'
+      }
     );
 
     delete user.senha;
 
-    return res.status(200).json({ token, user: { ...user, hasOnboarding } });
+    console.log('✅ Login realizado:', user.email);
+
+    return res.status(200).json({
+      token,
+      user: {
+        ...user,
+        role,
+        hasOnboarding
+      }
+    });
   } catch (err) {
     console.error('❌ ERRO LOGIN:', err);
-    return res.status(500).json({ message: 'Erro no servidor', error: getErrorMessage(err) });
+
+    return res.status(500).json({
+      message: 'Erro no servidor',
+      error: getErrorMessage(err)
+    });
   }
 };
 
-// -----------------------------
-// 3️⃣ BUSCAR PERFIL
-// -----------------------------
+// ============================================================
+// BUSCAR PERFIL
+// ============================================================
+
 export const getPerfil = async (req, res) => {
-  console.log('👤 [PERFIL] Buscando...');
   try {
     const email = safeLowerEmail(req.query.email);
-    if (!email) return res.status(400).json({ message: 'E-mail não informado.' });
 
-    let result = await db.query('SELECT * FROM public.produtores WHERE LOWER(email)=$1', [email]);
-    if (result.rows.length === 0) {
-      result = await db.query('SELECT * FROM public.usuarios WHERE LOWER(email)=$1', [email]);
+    if (!email) {
+      return res.status(400).json({
+        message: 'E-mail não informado.'
+      });
     }
-    if (result.rows.length === 0) return res.status(404).json({ message: 'Perfil não encontrado' });
+
+    let result = await db.query(
+      `
+        SELECT *
+        FROM public.produtores
+        WHERE LOWER(email) = $1
+      `,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      result = await db.query(
+        `
+          SELECT *
+          FROM public.usuarios
+          WHERE LOWER(email) = $1
+        `,
+        [email]
+      );
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: 'Perfil não encontrado'
+      });
+    }
 
     const user = result.rows[0];
+
     delete user.senha;
+
     return res.status(200).json(user);
   } catch (err) {
     console.error('❌ ERRO PERFIL:', err);
-    return res.status(500).json({ message: 'Erro ao buscar perfil', error: getErrorMessage(err) });
+
+    return res.status(500).json({
+      message: 'Erro ao buscar perfil',
+      error: getErrorMessage(err)
+    });
   }
 };
 
-// -----------------------------
-// 4️⃣ ATUALIZAR PERFIL
-// -----------------------------
+// ============================================================
+// ATUALIZAR PERFIL
+// ============================================================
+
 export const updatePerfil = async (req, res) => {
-  console.log('🆙 [UPDATE PERFIL]');
   try {
     const {
-      email_original, nome, cpf_cnpj, cep, rua, numero, bairro,
-      estado, telefone, razao_social, bio, instagram, linkedin
+      email_original,
+      nome,
+      cpf_cnpj,
+      cep,
+      rua,
+      numero,
+      bairro,
+      estado,
+      telefone,
+      razao_social,
+      bio,
+      instagram,
+      linkedin
     } = req.body;
 
     const email = safeLowerEmail(email_original);
-    if (!email) return res.status(400).json({ message: 'Email original não informado.' });
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'Email original não informado.'
+      });
+    }
 
     let result = await db.query(
-      `UPDATE public.produtores
-       SET nome=$1, cpf_cnpj=$2, cep=$3, rua=$4, numero=$5, bairro=$6,
-           estado=$7, telefone=$8, razao_social=$9, bio=$10, instagram=$11, linkedin=$12
-       WHERE LOWER(email)=$13
-       RETURNING *`,
+      `
+        UPDATE public.produtores
+        SET
+          nome = $1,
+          cpf_cnpj = $2,
+          cep = $3,
+          rua = $4,
+          numero = $5,
+          bairro = $6,
+          estado = $7,
+          telefone = $8,
+          razao_social = $9,
+          bio = $10,
+          instagram = $11,
+          linkedin = $12
+        WHERE LOWER(email) = $13
+        RETURNING *
+      `,
       [
-        emptyToNull(nome), emptyToNull(cpf_cnpj), emptyToNull(cep), emptyToNull(rua),
-        emptyToNull(numero), emptyToNull(bairro),
-        emptyToNull(estado ? String(estado).toUpperCase() : null),
-        emptyToNull(telefone), emptyToNull(razao_social), emptyToNull(bio),
-        emptyToNull(instagram), emptyToNull(linkedin), email
+        emptyToNull(nome),
+        emptyToNull(cpf_cnpj),
+        emptyToNull(cep),
+        emptyToNull(rua),
+        emptyToNull(numero),
+        emptyToNull(bairro),
+        emptyToNull(
+          estado
+            ? String(estado).toUpperCase()
+            : null
+        ),
+        emptyToNull(telefone),
+        emptyToNull(razao_social),
+        emptyToNull(bio),
+        emptyToNull(instagram),
+        emptyToNull(linkedin),
+        email
       ]
     );
 
     if (result.rowCount === 0) {
       result = await db.query(
-        `UPDATE public.usuarios
-         SET nome=$1, telefone=$2, bio=$3, instagram=$4, linkedin=$5
-         WHERE LOWER(email)=$6
-         RETURNING *`,
-        [emptyToNull(nome), emptyToNull(telefone), emptyToNull(bio), emptyToNull(instagram), emptyToNull(linkedin), email]
+        `
+          UPDATE public.usuarios
+          SET
+            nome = $1,
+            telefone = $2,
+            bio = $3,
+            instagram = $4,
+            linkedin = $5
+          WHERE LOWER(email) = $6
+          RETURNING *
+        `,
+        [
+          emptyToNull(nome),
+          emptyToNull(telefone),
+          emptyToNull(bio),
+          emptyToNull(instagram),
+          emptyToNull(linkedin),
+          email
+        ]
       );
     }
 
-    if (result.rowCount === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        message: 'Usuário não encontrado.'
+      });
+    }
 
     const user = result.rows[0];
+
     delete user.senha;
 
-    return res.status(200).json({ message: 'Perfil updated com sucesso!', user });
+    return res.status(200).json({
+      message: 'Perfil atualizado com sucesso!',
+      user
+    });
   } catch (err) {
     console.error('❌ ERRO UPDATE:', err);
-    return res.status(500).json({ message: 'Erro interno ao atualizar', error: getErrorMessage(err) });
+
+    return res.status(500).json({
+      message: 'Erro interno ao atualizar',
+      error: getErrorMessage(err)
+    });
   }
 };
 
-// -----------------------------
-// 5️⃣ UPLOAD AVATAR
-// -----------------------------
+// ============================================================
+// UPLOAD AVATAR
+// ============================================================
+
 export const uploadAvatar = async (req, res) => {
-  console.log('📷 [UPLOAD AVATAR]');
   try {
     const email = safeLowerEmail(req.body.email);
-    if (!email) return res.status(400).json({ message: 'E-mail não informado' });
-    if (!req.file) return res.status(400).json({ message: 'Nenhuma imagem enviada' });
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'E-mail não informado'
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        message: 'Nenhuma imagem enviada'
+      });
+    }
 
     const avatarUrl = req.file.path;
 
-    let result = await db.query('UPDATE public.produtores SET avatar=$1 WHERE LOWER(email)=$2 RETURNING *', [avatarUrl, email]);
-    if (result.rowCount === 0) {
-      result = await db.query('UPDATE public.usuarios SET avatar=$1 WHERE LOWER(email)=$2 RETURNING *', [avatarUrl, email]);
-    }
-    if (result.rowCount === 0) return res.status(404).json({ message: 'Usuário não encontrado' });
+    let result = await db.query(
+      `
+        UPDATE public.produtores
+        SET avatar = $1
+        WHERE LOWER(email) = $2
+        RETURNING *
+      `,
+      [avatarUrl, email]
+    );
 
-    return res.status(200).json({ message: 'Avatar atualizado com sucesso!', avatar: avatarUrl });
+    if (result.rowCount === 0) {
+      result = await db.query(
+        `
+          UPDATE public.usuarios
+          SET avatar = $1
+          WHERE LOWER(email) = $2
+          RETURNING *
+        `,
+        [avatarUrl, email]
+      );
+    }
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        message: 'Usuário não encontrado'
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Avatar atualizado com sucesso!',
+      avatar: avatarUrl
+    });
   } catch (err) {
     console.error('❌ ERRO AVATAR:', err);
-    return res.status(500).json({ message: 'Erro ao enviar avatar', error: getErrorMessage(err) });
+
+    return res.status(500).json({
+      message: 'Erro ao enviar avatar',
+      error: getErrorMessage(err)
+    });
   }
 };
 
-// -----------------------------
-// 6️⃣ PERFIL PUBLICO
-// -----------------------------
+// ============================================================
+// PERFIL PÚBLICO
+// ============================================================
+
 export const getPerfilPublico = async (req, res) => {
   try {
     const nome = safeString(req.query.nome);
-    if (!nome) return res.status(400).json({ message: 'Nome é obrigatório.' });
+
+    if (!nome) {
+      return res.status(400).json({
+        message: 'Nome é obrigatório.'
+      });
+    }
 
     let result = await db.query(
-      `SELECT nome,bio,instagram,linkedin,avatar,role,status
-       FROM public.produtores WHERE TRIM(LOWER(nome)) = TRIM(LOWER($1)) LIMIT 1`,
+      `
+        SELECT
+          nome,
+          bio,
+          instagram,
+          linkedin,
+          avatar,
+          role,
+          status
+        FROM public.produtores
+        WHERE TRIM(LOWER(nome)) = TRIM(LOWER($1))
+        LIMIT 1
+      `,
       [nome]
     );
 
     if (result.rows.length === 0) {
       result = await db.query(
-        `SELECT nome,bio,instagram,linkedin,avatar,role,status
-         FROM public.usuarios WHERE TRIM(LOWER(nome)) = TRIM(LOWER($1)) LIMIT 1`,
+        `
+          SELECT
+            nome,
+            bio,
+            instagram,
+            linkedin,
+            avatar,
+            role,
+            status
+          FROM public.usuarios
+          WHERE TRIM(LOWER(nome)) = TRIM(LOWER($1))
+          LIMIT 1
+        `,
         [nome]
       );
     }
 
-    if (result.rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado' });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: 'Usuário não encontrado'
+      });
+    }
 
     return res.status(200).json(result.rows[0]);
   } catch (err) {
-    console.error('❌ ERRO PERFIL PUBLICO:', err);
-    return res.status(500).json({ message: 'Erro ao buscar perfil público', error: getErrorMessage(err) });
+    console.error(
+      '❌ ERRO PERFIL PUBLICO:',
+      err
+    );
+
+    return res.status(500).json({
+      message: 'Erro ao buscar perfil público',
+      error: getErrorMessage(err)
+    });
   }
 };
